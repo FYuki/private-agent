@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {LIMITS,provider,str,type Provider} from '../shared/contracts.ts';
 
 // Provider auth, protocol, streaming and model catalog belong to maintained CLIs.
@@ -22,21 +23,24 @@ export function cleanEnv():NodeJS.ProcessEnv {
   for(const k of ['PATH','HOME','USER','LANG','CODEX_HOME','PI_CODING_AGENT_DIR'])if(process.env[k])env[k]=process.env[k];
   return env;
 }
-export function runProcess(file:string,args:string[],input:string,cwd:string,signal:AbortSignal, timeoutMs:number=LIMITS.timeoutMs):Promise<string>{
+export function runProcess(file:string,args:string[],input:string,cwd:string,signal:AbortSignal, timeoutMs:number=LIMITS.timeoutMs,deadlineNs=process.hrtime.bigint()+BigInt(Math.floor(timeoutMs*1000000))):Promise<string>{
   return new Promise((resolve,reject)=>{
     if(signal.aborted){reject(new Error('cancelled'));return;}
-    // GNU timeout remains alive if the polling worker is killed; no orphan CLI can run forever.
-    const child=spawn(process.platform==='linux'?'/usr/bin/timeout':file,process.platform==='linux'?['--signal=KILL',String(timeoutMs/1000)+'s',file,...args]:args,{cwd,env:cleanEnv(),shell:false,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
+    if(process.platform!=='linux'){reject(new Error('unsupported_platform'));return;}
+    if(process.hrtime.bigint()>=deadlineNs){reject(new Error('timeout'));return;}
+    // The independent guard consumes the SAME absolute monotonic deadline, including
+    // its own startup delay. Killing the poller cannot restart the CLI's time budget.
+    const child=spawn(process.execPath,[fileURLToPath(new URL('./deadline-guard.mjs',import.meta.url)),String(deadlineNs),file,...args],{cwd,env:cleanEnv(),shell:false,detached:true,stdio:['pipe','pipe','pipe']});
     let output='',bytes=0,failure:string|undefined;
     const kill=(why:string)=>{failure??=why;try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,'SIGKILL');else child.kill('SIGKILL');}catch{}};
     const abort=()=>kill('cancelled');signal.addEventListener('abort',abort,{once:true});
-    const timer=setTimeout(()=>kill('timeout'),timeoutMs);
+    const timer=setTimeout(()=>kill('timeout'),Math.max(0,Number(deadlineNs-process.hrtime.bigint())/1000000));
     const collect=(chunk:Buffer,stdout:boolean)=>{bytes+=chunk.length;if(bytes>LIMITS.processBytes)kill('output_limit');else if(stdout)output+=Buffer.from(chunk).toString('utf8');};
     child.stdout.on('data',(c:Buffer)=>collect(c,true));child.stderr.on('data',(c:Buffer)=>collect(c,false));
     // stderr may contain credentials or private CLI diagnostics; never persist it.
     child.stdin.on('error',()=>{});child.stdin.end(input);
     child.on('error',()=>{failure='cli_unavailable';});
-    child.on('close',code=>{clearTimeout(timer);signal.removeEventListener('abort',abort);if(failure||code!==0)reject(new Error(failure||(code===137||code===124?'timeout':'provider_failed')));else resolve(output);});
+    child.on('close',(code,exitSignal)=>{clearTimeout(timer);signal.removeEventListener('abort',abort);if(failure||code!==0)reject(new Error(failure||(code===137||code===124||(exitSignal==='SIGKILL'&&process.hrtime.bigint()>=deadlineNs)?'timeout':'provider_failed')));else resolve(output);});
   });
 }
 export function resultFromEvents(which:Provider,raw:string):string{
@@ -62,9 +66,9 @@ export function resultFromEvents(which:Provider,raw:string):string{
   if(!complete)throw new Error('incomplete_provider_output');
   return str(result,LIMITS.outputBytes);
 }
-export async function invoke(which:Provider,prompt:string,signal:AbortSignal,config=configFromEnv()):Promise<string>{
+export async function invoke(which:Provider,prompt:string,signal:AbortSignal,deadlineNs=process.hrtime.bigint()+BigInt(LIMITS.timeoutMs)*1000000n,config=configFromEnv()):Promise<string>{
   str(prompt,LIMITS.promptBytes);const cmd=command(which,config);
   const dir=await mkdtemp(join(tmpdir(),'private-agent-'));
-  try{return resultFromEvents(which,await runProcess(cmd.file,cmd.args,'Respond concisely using only the supplied text. No tools or external actions.\n'+prompt,dir,signal));}
+  try{return resultFromEvents(which,await runProcess(cmd.file,cmd.args,'Respond concisely using only the supplied text. No tools or external actions.\n'+prompt,dir,signal,LIMITS.timeoutMs,deadlineNs));}
   finally{await rm(dir,{recursive:true,force:true});}
 }

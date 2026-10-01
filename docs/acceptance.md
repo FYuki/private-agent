@@ -8,7 +8,7 @@ Measured 2026-10-01 in Ubuntu WSL, Node 24.20.0. Original main was `85da744` (`R
 |---|---|
 | Codex CLI 0.159.0 / ChatGPT login / GPT-6 Luna | Real synthetic `2+3` call returned `5` |
 | Pi 0.87.1 + installed pi-devin-connector 0.1.2 / SWE-2 Medium | Real synthetic `2+3` call returned `5` |
-| Final finite schedule, both profiles, 2 occurrences each | 4/4 real provider results stored as `succeeded` in local D1 |
+| Manual finite schedule simulation, both profiles, 2 occurrences each | 4/4 real provider results stored as `succeeded` in local D1 before review fixes; this used past tick requests and direct `once()` calls |
 | Duplicate scheduler deliveries | No duplicate provider runs; 4 unique Workflows for 4 admitted runs |
 | Overlap skip, queued/starting/running, outbox recovery, no catchup | Automated SQLite tests passed |
 | Shared model/auth-group limits across owners and competing workers | 20 competing claims stayed within limits; 0 pauses; negative rejected |
@@ -18,11 +18,21 @@ Measured 2026-10-01 in Ubuntu WSL, Node 24.20.0. Original main was `85da744` (`R
 | D1 local migrations | Both migrations applied successfully with `--local` |
 | Workflows local runtime | Admission + actual Workflow step + D1 activation + status verified under Wrangler 4.145.0 |
 | Mobile UI | Existing Chromium, 390×844 viewport: authenticated results, no horizontal overflow/JS errors, logout clears results |
-| TypeScript / tests / dry build | Passed; 16 tests; no deployment |
+| Original TypeScript / tests / dry build | Passed; 16 tests before review fixes; no deployment |
 
 Raw final measurement: [live-measurement.json](evidence/live-measurement.json). GNU time: [worker-time.txt](evidence/worker-time.txt). All inputs and outputs are synthetic. No private-knowledge documents were sent to either model. The sample private-knowledge PR was not merged; development-memory and rejected personal instruction files were not read by this task.
 
-The actual inference path is **Codex CLI and Pi CLI**, not a mocked provider. CI intentionally replaces only inference with a fixture and uses real local D1/Workflows. WSL forced-worker-death recovery is tested through the persisted lease state and independent subprocess timeouts, not a claim of production failover validation.
+The original actual inference path is **Codex CLI and Pi CLI**, not a mocked provider. CI intentionally replaces inference with a fixture and uses real local D1/Workflows. Manual-tick inference evidence is separate from the real-time scheduler/poller check described below; neither establishes production Cloudflare cron operation.
+
+## Review corrections and separate regression evidence
+
+Independent review found a delayed-claim timeout gap, an in-flight UI logout/token-switch race, and terminal Workflow failures leaving starts blocked. All three were corrected in this PR:
+
+- Shared absolute monotonic deadline: claim round-trip/preparation and supervisor startup consume the original server budget. Local and server wall-clock offsets are never compared. Expired responses do not launch a CLI. A Linux process test delays preparation, SIGKILLs the poller, and verifies that the independent guard still terminates its synthetic child by the original deadline. Old worker claim protocol is rejected.
+- UI session abort plus generation fencing: deferred fetch/body completion after logout or token replacement cannot restore old private results or error text. Both immediate DOM clearing and stale-response rejection are tested.
+- Terminal activation Workflow reconciliation: only unclaimed starts transition to `failed/workflow_failed`; already-running work is unchanged, unknown status stays retryable, and future occurrences can proceed. No unbounded Workflow restart loop is added.
+
+The regression suite has 24 tests. `scripts/realtime-check.ts` additionally starts the **actual polling process** and uses a wall-clock timer at 60-second intervals for exactly two occurrences, through local D1 admission, actual Workflows and the independent subprocess guard to result storage. The CLI is explicitly a fixture; this test makes **no additional real-model call**. See [real-time evidence](evidence/realtime-measurement.json). CI runs this finite real-time path as well as the shorter manual-tick integration check. The original real-model measurements below were not rerun or relabelled as post-fix inference measurements.
 
 ## What the local test measured
 

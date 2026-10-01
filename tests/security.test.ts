@@ -37,6 +37,6 @@ test('actual subprocess timeout, output ceiling, cancellation and nonzero exit',
  const a=new AbortController();const task=call('setInterval(()=>{},1000)',a.signal);a.abort();await assert.rejects(task,/cancelled/);
 });
 test('runner reports failure and repeats completion without rerunning provider',async()=>{
- let calls=0,completions=0;const api=async(path:string,b:any)=>{if(path==='/api/claim')return {id:'id',provider:'codex-luna',prompt:'test',token:'token'};if(path.endsWith('/complete')){completions++;assert.equal(b.result,'5');if(completions===1)throw Error('network');return {ok:true};}return {};};
+ let calls=0,completions=0;const api=async(path:string,b:any)=>{if(path==='/api/claim')return {id:'id',provider:'codex-luna',prompt:'test',token:'token',issued_at:1000,deadline:61000};if(path.endsWith('/complete')){completions++;assert.equal(b.result,'5');if(completions===1)throw Error('network');return {ok:true};}return {};};
  await once(api,async()=>{calls++;return '5';});assert.equal(calls,1);assert.equal(completions,2);
 });

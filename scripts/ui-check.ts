@@ -6,7 +6,7 @@ const browser=await chromium.launch({executablePath,headless:true});
 try{
  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});const errors:string[]=[];
  page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:8787/');assert.equal(await page.locator('article').count(),0);
+ await page.goto(process.env.CONTROL_URL||'http://127.0.0.1:8787/');assert.equal(await page.locator('article').count(),0);
  const tokens=JSON.parse(await readFile('.local/tokens.json','utf8'));await page.locator('#token').fill(tokens.viewer);await page.locator('form button').click();
  await page.waitForFunction(()=>document.querySelector('#status')?.textContent?.startsWith('更新:'));
  assert(await page.locator('article').count()>0);assert.equal(await page.locator('#token').inputValue(),'');

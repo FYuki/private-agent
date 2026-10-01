@@ -29,7 +29,7 @@ export function jobInput(v: unknown): JobInput {
   return {name:str(x.name,100), provider:provider(x.provider), prompt:str(x.prompt,LIMITS.promptBytes), startAt:integer(x.startAt,0,4102444800000), intervalSeconds:integer(x.intervalSeconds,60,86400), maxRuns:integer(x.maxRuns,1,10), enabled:x.enabled,overlapPolicy:'skip'};
 }
 export type Job = JobInput & {id:string; owner:string; created_at:number};
-export type Run = {id:string; job_id:string; owner:string; slot:number; due_at:number; state:'starting'|'queued'|'running'|'succeeded'|'failed'|'cancelled'|'skipped'; attempt:number; token:string|null; worker:string|null; lease_until:number|null; deadline:number|null; result:string|null; error:string|null; provider:Provider; prompt:string};
+export type Run = {id:string; job_id:string; owner:string; slot:number; due_at:number; state:'starting'|'queued'|'running'|'succeeded'|'failed'|'cancelled'|'skipped'; attempt:number; token:string|null; worker:string|null; lease_until:number|null; deadline:number|null; issued_at:number; result:string|null; error:string|null; provider:Provider; prompt:string};
 export type Principal={owner:string; role:'viewer'|'worker'; id:string; hash:string;group?:string};
 export type Capacity={models:Record<Provider,number>;groups:Record<string,number>};
 export function capacity(raw:unknown):Capacity{

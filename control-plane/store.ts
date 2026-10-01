@@ -36,6 +36,9 @@ export class Store {
   async activate(id:string){
     await this.q(`UPDATE runs SET state='queued' WHERE id=? AND state='starting'`,id).run();return {id};
   }
+  async failStarting(id:string){
+    return this.q(`UPDATE runs SET state='failed',error='workflow_failed' WHERE id=? AND state='starting' AND attempt=0 AND token IS NULL RETURNING id`,id).first<{id:string}>();
+  }
   async reap(owner:string){
     await this.q(`UPDATE runs SET state=CASE WHEN attempt>=? THEN 'failed' ELSE 'queued' END,error='lease_expired',lease_until=NULL
       WHERE owner=? AND state='running' AND lease_until<=? AND deadline+3000<=?`,LIMITS.maxAttempts,owner,this.now(),this.now()).run();
@@ -53,7 +56,7 @@ export class Store {
       AND (SELECT COUNT(*) FROM attempts WHERE owner=? AND started_at>=?)<? RETURNING *`,token,worker,group,now+LIMITS.leaseMs,now+LIMITS.timeoutMs,now+LIMITS.timeoutMs+3000,owner,now,LIMITS.maxAttempts,provider??null,provider??null,now,limits.models['codex-luna'],limits.models['pi-swe2'],worker,now,group,now,limits.groups[group],owner,Math.floor(now/86400000)*86400000,LIMITS.dailyAttempts).first<Run>();
     if(!r)return null;
     const j=await this.q('SELECT provider,prompt FROM jobs WHERE id=?',r.job_id).first<{provider:Run['provider'];prompt:string}>();
-    return {...r,...j};
+    return {...r,...j,issued_at:now};
   }
   async heartbeat(owner:string,worker:string,id:string,token:string){
     const now=this.now();

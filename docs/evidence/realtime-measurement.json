@@ -1,0 +1,11 @@
+{
+  "mode": "real-time timer + real polling process + fixture CLI (no live inference)",
+  "at": "2026-10-01T14:16:47.404Z",
+  "scheduledIntervalMs": 60000,
+  "ticks": [
+    1790864146171,
+    1790864206171
+  ],
+  "observedIntervalMs": 60000,
+  "successfulRuns": 2
+}

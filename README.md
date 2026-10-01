@@ -65,7 +65,7 @@ npm run test:integration -- --live
 | `GET /api/state` | viewer、同じownerの予定/結果のみ |
 | `POST /api/jobs` / `.../:id/disable` | viewer、同じownerのみ |
 | `POST /api/runs/:id/cancel` | viewer、同じownerのみ |
-| `POST /api/claim` `{provider?}` | worker、同じowner、固定profileのみ |
+| `POST /api/claim` `{protocol:"absolute-deadline-v1",provider?}` | worker、同じowner、固定profileのみ。旧workerは拒否 |
 | `POST /api/runs/:id/heartbeat` / `complete` | 取得したworker・owner・lease tokenが一致 |
 | `POST /api/tick` `{at}` / `GET /api/ticks/:id` | localモードのviewerのみ、本番では拒否 |
 
@@ -80,6 +80,8 @@ npm run test:integration -- --live
 model上限とgroup上限を同時に満たすjobだけを単一SQLの原子的claimで取得します。0は停止、負数/非整数/17以上は設定エラーです。同じCLI/アカウントを増設しても上限は増えません。低下させた上限は新規claimに即適用し、実行中を強制終了しません。CLIをこの仕組み外で手動使用した分や、異なるD1へ分散したworkerはこの台帳では数えられません。groupは正しい共有アカウントに対応させてください。
 
 通常のworker pollingは30秒間隔です（`POLL_INTERVAL_MS`: 1000〜600000）。idle polling自体もHTTP/D1の負荷です。詳細: [設計・安全境界](docs/architecture.md)、[実証記録と月換算](docs/acceptance.md)。
+
+実時間の有限試験は`node --import tsx scripts/realtime-check.ts`で実行できます。実時間60秒間隔で2回だけ受付け、実pollerプロセスとfixture CLIで保存まで確認し終了します（外部モデル呼出なし、約65秒）。上記`--live`の手動tick模擬とは別の証拠です。
 
 ## 本番化前のユーザー判断とrollback
 

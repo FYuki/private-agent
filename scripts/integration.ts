@@ -40,7 +40,7 @@ for(let duplicate=0;duplicate<2;duplicate++){
   if(n===59)throw Error('workflow_not_completed');await new Promise(r=>setTimeout(r,100));
  }}
 }
-assert.equal(await client(base,tokens.other)('/api/claim',{}),null);
+assert.equal(await client(base,tokens.other)('/api/claim',{protocol:'absolute-deadline-v1'}),null);
 for(let n=0;n<2;n++)assert(await once(worker,live?invoke:async()=> '5'));
 }
 assert.equal(await once(worker,live?invoke:async()=> 'unexpected'),false);

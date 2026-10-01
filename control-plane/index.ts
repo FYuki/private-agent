@@ -4,6 +4,7 @@ import {authenticate} from './auth.ts';
 import {Fault,LIMITS,exact,object,str,integer,provider,capacity} from '../shared/contracts.ts';
 import {html,script} from './ui.ts';
 import {MeasuredDatabase} from './measurement.ts';
+import {dispatch} from './dispatch.ts';
 type Tick={runId:string};
 export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
 export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
@@ -13,17 +14,6 @@ export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
       return {...result,...(this.env.MODE==='local'?{measurement:{...db.metrics,wallMs:performance.now()-start,logicalSteps:1}}:{})};
     });
   }
-}
-async function dispatch(env:Env,store:Store,at:number,owner?:string){
- const admitted=await store.tick(at,owner),ids:string[]=[];
- for(const run of admitted.pending){
-  const id=run.owner+'-'+run.id.replace(':','-');
-  try{await env.TICK.create({id,params:{runId:run.id}});}catch(error){
-    // Deterministic instance ID: a retry can observe an already created instance.
-    try{await (await env.TICK.get(id)).status();}catch{throw error;}
-  }ids.push(id);
- }
- return {enqueued:admitted.enqueued,skipped:admitted.skipped,ids};
 }
 const headers={'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 async function body(req:Request){
@@ -53,7 +43,8 @@ export default {
    if(req.method!=='POST')throw new Fault(404,'not_found');
    const b=await body(req);
    if(path==='/api/claim'){
-     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider']);
+     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol']);
+     if(b.protocol!=='absolute-deadline-v1')throw new Fault(400,'worker_upgrade_required');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
      return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits));
    }
@@ -76,13 +67,13 @@ export default {
    if(disable){exact(b,[]);return json(await store.disable(p.owner,disable[1]));}
    if(path==='/api/tick'&&env.MODE==='local'){
      exact(b,['at']);const at=integer(b.at,0,Date.now()+60000);
-     return json(await dispatch(env,store,at,p.owner),202);
+     return json(await dispatch(env.TICK,store,at,p.owner),202);
    }
    throw new Fault(404,'not_found');
   }catch(e){return json({error:e instanceof Fault?e.message:'internal_error'},e instanceof Fault?e.status:500);}
  },
  async scheduled(event:ScheduledController,env:Env){
    if(env.SCHEDULE_ENABLED!=='true')return;
-   await dispatch(env,new Store(env.DB),event.scheduledTime);
+   await dispatch(env.TICK,new Store(env.DB),event.scheduledTime);
  }
 };
