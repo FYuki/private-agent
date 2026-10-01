@@ -1,0 +1,27 @@
+{
+  "name": "private-agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "dev:setup": "node scripts/dev-setup.mjs",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "worker": "tsx wsl-worker/main.ts",
+    "test:integration": "tsx scripts/integration.ts",
+    "build": "wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261001.1",
+    "@types/node": "26.6.3",
+    "playwright-core": "1.63.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "wrangler": "4.145.0"
+  }
+}
