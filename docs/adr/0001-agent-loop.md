@@ -1,0 +1,9 @@
+# ADR 0001: Coreとツール実行ループの分離
+
+状態: 採用
+
+Coreは人格、記憶、skillsと物理モデル選択を所有するキャラクター対応LLM providerとする。private-agentはModelGateway、ToolExecutor、RunStoreを依存注入するTypeScriptループを所有する。Coreにツール実行ループを持たせない。
+
+ツール選択はモデルが提案し、実行側が登録済みツール、allowlist、JSON Schema、回数・時間・出力量を検証する。実行前にSQLiteへ予約し、同一run内の同じ書込ツールversionと引数はcall IDが異なっても同じ結果を返す。readは同じcall IDの再送だけをキャッシュし、新しいcall IDで再読取できる。書込結果が不明な場合は停止し、再起動で自動再実行しない。未知の副作用に対するexactly-onceは主張しない。
+
+既存のWorkers/Workflows/D1とWSL構成を維持する。新しいフレームワークや言語は導入せず、CoreのChatCompletions互換転送は公式OpenAI SDK、引数検証はAjvを利用する。character IDを物理モデルの容量キーには流用しない。Coreの物理モデル・認証グループ情報を信頼できる管理経路で取得するまでは定期ジョブへ組み込まない。
