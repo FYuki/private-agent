@@ -44,7 +44,7 @@ test('HTTP multi-turn preserves call identity and sanitized tool failure', async
       assert.deepEqual(JSON.parse(body.messages[2].content), { ok: false, error: 'tool_failed' });
       assert.ok(!JSON.stringify(body).includes('SECRET'));
     }
-    const message = turns === 1 ? { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] } : { role: 'assistant', content: 'handled' };
+    const message = turns === 1 ? { role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] } : { role: 'assistant', content: 'handled' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ choices: [{ finish_reason: turns === 1 ? 'tool_calls' : 'stop', message }] }));
   });
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r)); const store = new SqliteRunStore(':memory:');

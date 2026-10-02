@@ -23,3 +23,7 @@ local MODEでのみ `provider: "agent-fixture"` と `agent: {"characterId":"alic
 例: `WORKER_PROVIDER=agent-fixture AGENT_STATE_DB="$PWD/.local/agent.db" npm run worker`。CONTROL_URL/WORKER_TOKENは既存のローカル設定を使う。モデルやジョブから環境変数を変更できない。UIの既存予定カードにはcharacter IDが表示され、結果は既存runカードへ保存・表示する。ジョブ作成UIは追加していない。
 
 `scripts/realtime-check.ts` は実時間60秒間隔の2回についてCLI fixtureとgeneric fixtureを別の実pollerで実行する。timer→Workflows→D1 claim→generic loop→tool→D1結果の経路を検証する。cronは有効化しない。CIには秘密やCoreサービスは不要。
+
+## Core結合確認
+
+Coreサービスの準備後、`CORE_URL=http://127.0.0.1:<port>/v1 CORE_CHARACTER=<登録ID> node --import tsx scripts/core-join-check.ts` を明示実行する。Coreのtests.fixture_serverに対し、固定の合成goalとゼロ引数fixture_ping read toolだけを使用する。実tool callと最終応答を要求し、状態・回数だけを `.local/evidence/core-join-<character>.json` に記録する。上流がfixtureか実モデルかは実施時に別途記録し、このスクリプトの成功だけで実LLM動作を主張しない。CIからの自動呼出しはない。

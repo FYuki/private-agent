@@ -36,7 +36,7 @@ export class CoreGateway implements ModelGateway {
     });
     const message = response.choices?.[0]?.message;
     if (!message || response.choices.length !== 1 || !['stop', 'tool_calls'].includes(response.choices[0].finish_reason)) throw new Error('invalid_core_response');
-    return { content: message.content, toolCalls: (message.tool_calls || []).map(c => {
+    return { content: message.content ?? null, toolCalls: (message.tool_calls || []).map(c => {
       if (c.type !== 'function') throw new Error('invalid_core_response');
       return { id: c.id, name: c.function.name, arguments: c.function.arguments };
     }) };

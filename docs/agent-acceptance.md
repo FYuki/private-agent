@@ -16,4 +16,8 @@ CodeRabbit設定追加と実botレビューの完了は区別する。実レビ�
 
 PR #1の監査: GitHub API上のmerged_byはFYuki、merged_atは2026-10-02T17:31:30Z、merge commitは5408928a936e9620df07d7f3dea2e80b4e2a82e6。この変更の開発基底として保全している。
 
-未実施: Coreとの実接続、production認証、SSE、Core実モデルの定期実行、実副作用tool、未知結果の手動照合UI。本番cron、deploy、課金は無効のまま。
+Core実サービス結合: 2026-10-02 18:12:24 UTC、Core側localhost:18080の実APIとprivate-agentの公式SDKアダプターを接続。character_id=miori、fixture_pingの呼出しと合成結果の再送を経て、2turn/1tool call/1executionでcompleted。Core内部providerはfixtureであり、実LLMではない。tool call応答のcontent省略をnullへ正規化する互換修正も回帰検証した。
+
+18:13:41 UTCにはcharacter_id=otherでも同じ2turn/1tool call/1executionでcompletedを確認。スマホ幅390pxの実Chromiumで予定のcharacter IDと保存結果、横はみ出しなし、JSエラーなし、logout消去を確認。日本語はrepo内fontconfigから既存Windowsフォントを参照して目視確認した。global font設定は変更していない。
+
+未実施: production認証、SSE、Core実モデルの定期実行、実副作用tool、未知結果の手動照合UI。本番cron、deploy、課金は無効のまま。
