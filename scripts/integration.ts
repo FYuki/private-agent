@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
-import {client,once} from '../wsl-worker/main.ts';
-import {invoke} from '../wsl-worker/providers.ts';
+import {client,once,cliRunner} from '../wsl-worker/main.ts';
 const tokens=JSON.parse(await readFile('.local/tokens.json','utf8'));
 const base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
 const live=process.argv.includes('--live');
@@ -41,9 +40,9 @@ for(let duplicate=0;duplicate<2;duplicate++){
  }}
 }
 assert.equal(await client(base,tokens.other)('/api/claim',{protocol:'absolute-deadline-v1'}),null);
-for(let n=0;n<2;n++)assert(await once(worker,live?invoke:async()=> '5'));
+for(let n=0;n<2;n++)assert(await once(worker,live?cliRunner:async()=> '5'));
 }
-assert.equal(await once(worker,live?invoke:async()=> 'unexpected'),false);
+assert.equal(await once(worker,live?cliRunner:async()=> 'unexpected'),false);
 const state=(await api('api/state')).body;
 const runs=state.runs.filter((r:any)=>ids.includes(r.job_id));assert.equal(runs.length,4);
 for(const r of runs){assert.equal(r.state,'succeeded',JSON.stringify(r));assert.equal(r.result.trim(),'5');}

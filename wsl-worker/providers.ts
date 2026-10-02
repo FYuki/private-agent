@@ -11,6 +11,7 @@ export type CliConfig={codex:string;pi:string;devinExtension:string};
 export const configFromEnv=():CliConfig=>({codex:process.env.CODEX_BIN||'codex',pi:process.env.PI_BIN||'pi',devinExtension:process.env.PI_DEVIN_EXTENSION||''});
 export function command(which:Provider,config:CliConfig):{file:string;args:string[]} {
   provider(which);
+  if(which==='agent-fixture')throw new Error('unsupported_provider');
   if(which==='codex-luna')return {file:config.codex,args:['exec','--ignore-user-config','--ignore-rules','--skip-git-repo-check','--ephemeral','--sandbox','read-only','--model','gpt-6-luna','--json',
     '-c','forced_login_method="chatgpt"','-c','approval_policy="never"','-c','project_doc_max_bytes=0','-c','web_search="disabled"',
     '-c','features.shell_tool=false','-c','features.unified_exec=false','-c','features.apply_patch_freeform=false','-c','features.multi_agent=false','-c','features.apps=false','-c','features.skills=false','-c','features.hooks=false','-c','model_reasoning_effort="low"','-']};

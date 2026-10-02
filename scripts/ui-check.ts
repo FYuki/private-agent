@@ -10,6 +10,10 @@ try{
  const tokens=JSON.parse(await readFile('.local/tokens.json','utf8'));await page.locator('#token').fill(tokens.viewer);await page.locator('form button').click();
  await page.waitForFunction(()=>document.querySelector('#status')?.textContent?.startsWith('更新:'));
  assert(await page.locator('article').count()>0);assert.equal(await page.locator('#token').inputValue(),'');
+ if(process.env.EXPECT_GENERIC==='true'){
+  assert(await page.locator('article').filter({hasText:'agent-fixture / alice'}).count()>0);
+  assert(await page.locator('article').filter({hasText:'alice: 5'}).count()>0);
+ }
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await mkdir('.local/evidence',{recursive:true});await page.screenshot({path:'.local/evidence/mobile.png',fullPage:true});
  await page.locator('#logout').click();assert.equal(await page.locator('article').count(),0);assert.deepEqual(errors,[]);

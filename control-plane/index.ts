@@ -45,6 +45,7 @@ export default {
    if(path==='/api/claim'){
      if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol']);
      if(b.protocol!=='absolute-deadline-v1')throw new Fault(400,'worker_upgrade_required');
+     if(b.provider==='agent-fixture'&&env.MODE!=='local')throw new Fault(403,'fixture_local_only');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
      return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits));
    }
@@ -62,7 +63,7 @@ export default {
      return json(await store.finish(p.owner,p.id,id,token,result,error));
    }
    if(p.role!=='viewer')throw new Fault(403,'role_denied');
-   if(path==='/api/jobs'){const key=str(req.headers.get('idempotency-key'),128);return json({id:await store.create(p.owner,key,b)},201);}
+   if(path==='/api/jobs'){if(b.provider==='agent-fixture'&&env.MODE!=='local')throw new Fault(403,'fixture_local_only');const key=str(req.headers.get('idempotency-key'),128);return json({id:await store.create(p.owner,key,b)},201);}
    const disable=path.match(/^\/api\/jobs\/([a-f0-9-]+)\/disable$/);
    if(disable){exact(b,[]);return json(await store.disable(p.owner,disable[1]));}
    if(path==='/api/tick'&&env.MODE==='local'){
