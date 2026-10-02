@@ -48,15 +48,15 @@ export class Store {
     await this.reap(owner); const now=this.now(),token=crypto.randomUUID();
     // One atomic conditional UPDATE prevents concurrent claim races across processes.
     const r=await this.q(`UPDATE runs SET state='running',attempt=attempt+1,token=?,worker=?,auth_group=?,lease_until=?,deadline=?,hold_until=?,error=NULL
-      WHERE id=(SELECT r.id FROM runs r JOIN jobs j ON j.id=r.job_id WHERE r.owner=? AND state='queued' AND due_at<=? AND attempt<? AND (? IS NULL OR j.provider=?)
-        AND (SELECT COUNT(*) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id WHERE occupied.hold_until>? AND oj.provider=j.provider)<CASE j.provider WHEN 'codex-luna' THEN ? WHEN 'pi-swe2' THEN ? ELSE 0 END
+      WHERE id=(SELECT r.id FROM runs r JOIN jobs j ON j.id=r.job_id WHERE r.owner=? AND state='queued' AND due_at<=? AND attempt<? AND ((? IS NULL AND j.provider!='agent-fixture') OR j.provider=?)
+        AND (SELECT COUNT(*) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id WHERE occupied.hold_until>? AND oj.provider=j.provider)<CASE j.provider WHEN 'codex-luna' THEN ? WHEN 'pi-swe2' THEN ? WHEN 'agent-fixture' THEN ? ELSE 0 END
         ORDER BY due_at,r.id LIMIT 1)
       AND NOT EXISTS(SELECT 1 FROM runs WHERE worker=? AND hold_until>?)
       AND (SELECT COUNT(*) FROM runs WHERE auth_group=? AND hold_until>?)<?
-      AND (SELECT COUNT(*) FROM attempts WHERE owner=? AND started_at>=?)<? RETURNING *`,token,worker,group,now+LIMITS.leaseMs,now+LIMITS.timeoutMs,now+LIMITS.timeoutMs+3000,owner,now,LIMITS.maxAttempts,provider??null,provider??null,now,limits.models['codex-luna'],limits.models['pi-swe2'],worker,now,group,now,limits.groups[group],owner,Math.floor(now/86400000)*86400000,LIMITS.dailyAttempts).first<Run>();
+      AND (SELECT COUNT(*) FROM attempts WHERE owner=? AND started_at>=?)<? RETURNING *`,token,worker,group,now+LIMITS.leaseMs,now+LIMITS.timeoutMs,now+LIMITS.timeoutMs+3000,owner,now,LIMITS.maxAttempts,provider??null,provider??null,now,limits.models['codex-luna'],limits.models['pi-swe2'],limits.models['agent-fixture']??0,worker,now,group,now,limits.groups[group],owner,Math.floor(now/86400000)*86400000,LIMITS.dailyAttempts).first<Run>();
     if(!r)return null;
-    const j=await this.q('SELECT provider,prompt FROM jobs WHERE id=?',r.job_id).first<{provider:Run['provider'];prompt:string}>();
-    return {...r,...j,issued_at:now};
+    const j=await this.q('SELECT provider,prompt,spec FROM jobs WHERE id=?',r.job_id).first<{provider:Run['provider'];prompt:string;spec:string}>();
+    return {...r,provider:j!.provider,prompt:j!.prompt,...(j!.provider==='agent-fixture'?{agent:jobInput(JSON.parse(j!.spec)).agent}:{}),issued_at:now};
   }
   async heartbeat(owner:string,worker:string,id:string,token:string){
     const now=this.now();
@@ -86,7 +86,7 @@ export class Store {
   }
   async list(owner:string){
     await this.reap(owner);
-    return {jobs:(await this.q('SELECT id,name,provider,start_at,interval_seconds,max_runs,enabled FROM jobs WHERE owner=? ORDER BY created_at DESC',owner).all()).results,
+    return {jobs:(await this.q("SELECT id,name,provider,json_extract(spec,'$.agent.characterId') AS character_id,start_at,interval_seconds,max_runs,enabled FROM jobs WHERE owner=? ORDER BY created_at DESC",owner).all()).results,
       runs:(await this.q('SELECT id,job_id,slot,due_at,state,attempt,result,error FROM runs WHERE owner=? ORDER BY due_at DESC LIMIT 100',owner).all<Run>()).results};
   }
 }

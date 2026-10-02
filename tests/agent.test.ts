@@ -82,3 +82,33 @@ test('non-Error provider rejection is terminal and sanitized', async () => {
     assert.deepEqual(await runAgent(task, deps), result);
   } finally { store.close(); }
 });
+test('reservation delay cannot start a write after the deadline', async () => {
+  const store = new SqliteRunStore(':memory:'); let calls = 0;
+  const reserve = store.reserve.bind(store);
+  store.reserve = (...args) => { const result = reserve(...args); const end = performance.now() + 30; while (performance.now() < end) {} return result; };
+  try { const result = await runAgent({ ...task, limits: { maxDurationMs: 5 } }, { store, gateway: sequence(call()), tools: [tool(async () => ++calls, 'write')] });
+    assert.equal(calls, 0); assert.equal(result.state, 'stopped');
+  } finally { store.close(); }
+});
+test('numeric tool call identity cannot cause a side effect', async () => {
+  for (const field of ['id', 'name'] as const) {
+    const store = new SqliteRunStore(':memory:'); let calls = 0;
+    const malformed = call(); (malformed.toolCalls[0] as any)[field] = 123;
+    try { const result = await runAgent(task, { store, gateway: sequence(malformed), tools: [tool(async () => ++calls, 'write')] });
+      assert.equal(calls, 0); assert.equal(result.error, 'invalid_model_output');
+    } finally { store.close(); }
+  }
+});
+test('concurrent same run and cancellation during write never replay late effect', async () => {
+  const store = new SqliteRunStore(':memory:'); const abort = new AbortController();
+  let finish!: (data: unknown) => void, entered!: () => void, calls = 0;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const deps = { store, gateway: sequence(call(), final), tools: [tool(async () => { calls++; entered(); return new Promise(resolve => { finish = resolve; }); }, 'write')] };
+  try {
+    const first = runAgent(task, deps, abort.signal); await started;
+    assert.equal((await runAgent(task, deps)).state, 'blocked');
+    abort.abort(); assert.equal((await first).state, 'stopped');
+    finish({ value: 'late' }); await new Promise(resolve => setImmediate(resolve));
+    assert.equal((await runAgent(task, deps)).state, 'stopped'); assert.equal(calls, 1);
+  } finally { store.close(); }
+});

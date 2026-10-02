@@ -33,7 +33,7 @@ function reply(value: ModelReply): ModelReply {
   if (value.content !== null) bounded(value.content, 16384);
   const ids = new Set<string>();
   for (const call of value.toolCalls) {
-    if (!call || !/^[a-zA-Z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !/^[a-zA-Z0-9_-]{1,64}$/.test(call.name)) throw new Error('invalid_model_output');
+    if (!call || typeof call.id !== 'string' || typeof call.name !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !/^[a-zA-Z0-9_-]{1,64}$/.test(call.name)) throw new Error('invalid_model_output');
     ids.add(call.id); bounded(call.arguments, 8192);
   }
   if (!value.toolCalls.length && !value.content?.trim()) throw new Error('invalid_model_output');
@@ -70,7 +70,7 @@ export async function runAgent(task: AgentTask, deps: { gateway: ModelGateway; t
     while (turns < limits.maxTurns) {
       checkDeadline();
       if (Buffer.byteLength(canonical(messages)) > limits.maxTranscriptBytes) throw new Error('transcript_limit');
-      const output = reply(await cancellable(() => deps.gateway.complete({ characterId: task.characterId, messages: structuredClone(messages), tools: structuredClone(definitions) }, signal), signal));
+      const output = reply(await cancellable(() => { checkDeadline(); return deps.gateway.complete({ characterId: task.characterId, messages: structuredClone(messages), tools: structuredClone(definitions) }, signal); }, signal));
       checkDeadline(); turns++;
       if (Buffer.byteLength(canonical([...messages, { role: 'assistant', content: output.content, toolCalls: output.toolCalls }])) > limits.maxTranscriptBytes) throw new Error('transcript_limit');
       if (!output.toolCalls.length) {
@@ -92,11 +92,12 @@ export async function runAgent(task: AgentTask, deps: { gateway: ModelGateway; t
             const fingerprint = hash(canonical({ name: call.name, version: entry.tool.version, args }));
             const effectKey = hash(key + '/' + fingerprint + (entry.tool.effect === 'read' ? '/' + call.id : ''));
             const effect = deps.store.reserve(key, acquired.token, effectKey, call.id, fingerprint);
+            checkDeadline();
             if (effect.kind === 'uncertain') throw new Error('effect_uncertain');
             if (effect.kind === 'cached') response = effect.result;
             else {
               try {
-                const data = await cancellable(() => entry.tool.execute(args!, { signal, idempotencyKey: effectKey }), signal);
+                const data = await cancellable(() => { checkDeadline(); return entry.tool.execute(args!, { signal, idempotencyKey: effectKey }); }, signal);
                 checkDeadline(); response = bounded(canonical({ ok: true, data }), 16384);
               } catch (error) {
                 if (signal.aborted || entry.tool.effect === 'write') throw new Error(signal.aborted ? 'stopped' : 'effect_uncertain');

@@ -8,4 +8,12 @@
 
 CodeRabbit設定追加と実botレビューの完了は区別する。実レビュー状況はPRのチェック・コメントを確認する。CodeRabbitのインストール、権限、契約、GitHub保護設定をこの作業では変更しない。
 
-未実施: Coreとの実接続、production認証、SSE、汎用ジョブのWeb画面/定期実行接続、実副作用tool、未知結果の手動照合UI。本番cron、deploy、課金は無効のまま。
+追加検証: 親レビューのSQLite予約遅延後deadlineと数値tool call IDの指摘を修正。同期reserve遅延による期限超過でwriteが起動しないこと、異常ID/nameで副作用ゼロを検証する。HTTP複数ターンのcall ID・toolエラー往復、同時run、write中cancel/遅延結果も回帰ケースに含む。
+
+合成汎用ジョブの定期実行とUIの予定/結果表示を既存経路へ接続した。実時間試験はCLI fixture 2runとgeneric fixture 2runを検証する。Coreサービス接続や実LLM推論とは区別する。
+
+2026-10-02 18:04:43 UTC、隔離ローカルD1で実時間試験成功。60,006ms間隔、CLI 2runとgeneric 2run、合計4run成功、generic結果は `alice: 5`。以前の試験DBはjob上限に達していたため既存状態や上限を変えず、`.local/agent-integration` にmigrationして検証した。
+
+PR #1の監査: GitHub API上のmerged_byはFYuki、merged_atは2026-10-02T17:31:30Z、merge commitは5408928a936e9620df07d7f3dea2e80b4e2a82e6。この変更の開発基底として保全している。
+
+未実施: Coreとの実接続、production認証、SSE、Core実モデルの定期実行、実副作用tool、未知結果の手動照合UI。本番cron、deploy、課金は無効のまま。

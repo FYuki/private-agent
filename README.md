@@ -1,5 +1,7 @@
 # private-agent
 
+汎用エージェント基盤は [agent-runtime](docs/agent-runtime.md) を参照。ローカル限定の合成ジョブは有限スケジュール、実poller、検証済みtool loop、D1結果保存まで接続済み。Core実サービスと実モデルの定期接続は未実施。従来のCLIジョブはそのまま利用できる。
+
 定期タスクで **GPT-6 Luna / Devin SWE-2** を呼び、状態と結果を記録する最小MVPです。Cloudflare Workers + Workflows + D1が予定・台帳を持ち、Ubuntu WSLの同じworkerを設定違いで複製できます。初期受け入れは知識要約専用ではなく、有限の定期実行です。
 
 **本番未デプロイ・cron無効・mainへのマージはユーザーレビュー待ち。** スマホ向け画面は閲覧とcancelのみ。ローカルはlocalhost限定です。
