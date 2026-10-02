@@ -1,0 +1,10 @@
+{
+  "name": "Synthetic periodic check",
+  "provider": "codex-luna",
+  "prompt": "Synthetic task: calculate 2 + 3. Reply with the number only.",
+  "startAt": 1790812800000,
+  "intervalSeconds": 3600,
+  "maxRuns": 2,
+  "enabled": false,
+  "overlapPolicy": "skip"
+}

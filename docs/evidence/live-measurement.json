@@ -1,0 +1,70 @@
+{
+  "at": "2026-10-01T13:53:28.341Z",
+  "mode": "LIVE providers",
+  "workflowInstances": 4,
+  "scheduledOccurrences": 2,
+  "successfulRuns": 4,
+  "wallMs": 17496.023730999997,
+  "measured": {
+    "requests": 28,
+    "requestBytes": 1204,
+    "responseBytes": 9308,
+    "statements": 55,
+    "rowsRead": 533,
+    "rowsWritten": 64,
+    "apiWallMs": 547
+  },
+  "workflowMeasurements": [
+    {
+      "statements": 1,
+      "rowsRead": 1,
+      "rowsWritten": 2,
+      "wallMs": 7,
+      "logicalSteps": 1
+    },
+    {
+      "statements": 1,
+      "rowsRead": 1,
+      "rowsWritten": 2,
+      "wallMs": 18,
+      "logicalSteps": 1
+    },
+    {
+      "statements": 1,
+      "rowsRead": 1,
+      "rowsWritten": 2,
+      "wallMs": 6,
+      "logicalSteps": 1
+    },
+    {
+      "statements": 1,
+      "rowsRead": 1,
+      "rowsWritten": 2,
+      "wallMs": 19,
+      "logicalSteps": 1
+    }
+  ],
+  "resultBytes": 4,
+  "results": [
+    {
+      "id": "c5fee277-0c67-4dec-9acb-75ac0fee817f:1",
+      "state": "succeeded",
+      "result": "5"
+    },
+    {
+      "id": "25f5ce17-2954-4b54-802e-7ddf8986f23c:1",
+      "state": "succeeded",
+      "result": "5"
+    },
+    {
+      "id": "c5fee277-0c67-4dec-9acb-75ac0fee817f:0",
+      "state": "succeeded",
+      "result": "5"
+    },
+    {
+      "id": "25f5ce17-2954-4b54-802e-7ddf8986f23c:0",
+      "state": "succeeded",
+      "result": "5"
+    }
+  ]
+}

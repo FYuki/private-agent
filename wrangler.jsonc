@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "private-agent",
+  "main": "control-plane/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {"MODE":"local", "SCHEDULE_ENABLED":"false", "LIMITS_JSON":"{\"models\":{\"codex-luna\":1,\"pi-swe2\":1},\"groups\":{\"local\":1,\"other\":1}}"},
+  "d1_databases": [{"binding":"DB","database_name":"private-agent-local","database_id":"00000000-0000-0000-0000-000000000000","migrations_dir":"control-plane/migrations"}],
+  "workflows": [{"name":"private-agent-tick","binding":"TICK","class_name":"ScheduleTick"}],
+  "triggers": {"crons":[]}
+}
