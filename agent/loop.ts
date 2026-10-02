@@ -107,12 +107,15 @@ export async function runAgent(task: AgentTask, deps: { gateway: ModelGateway; t
           }
         }
         messages.push({ role: 'tool', toolCallId: call.id, content: response });
+        if (Buffer.byteLength(canonical(messages)) > limits.maxTranscriptBytes) throw new Error('transcript_limit');
+        checkDeadline();
       }
     }
     throw new Error('turn_limit');
   } catch (error) {
     const known = ['tool_limit', 'turn_limit', 'transcript_limit', 'invalid_model_output', 'output_limit', 'effect_uncertain', 'tool_call_conflict'];
-    const code = signal.aborted ? 'stopped' : known.includes((error as Error).message) ? (error as Error).message : 'gateway_or_store_failed';
+    const message = error instanceof Error ? error.message : '';
+    const code = signal.aborted ? 'stopped' : known.includes(message) ? message : 'gateway_or_store_failed';
     result = { state: code === 'stopped' ? 'stopped' : ['effect_uncertain', 'tool_call_conflict'].includes(code) ? 'blocked' : 'failed', error: code, turns, toolCalls };
     deps.store.finish(key, acquired.token, result); return result;
   } finally { clearTimeout(timer); }

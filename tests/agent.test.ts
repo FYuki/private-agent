@@ -75,3 +75,10 @@ test('new read call observes fresh data; repeated call ID reuses its result', as
   const store = new SqliteRunStore(':memory:'); let calls = 0;
   try { await runAgent(task, { store, gateway: sequence(call(), call('c2'), call('c2'), final), tools: [tool(async () => ++calls)] }); assert.equal(calls, 2); } finally { store.close(); }
 });
+test('non-Error provider rejection is terminal and sanitized', async () => {
+  const store = new SqliteRunStore(':memory:');
+  try { const deps = { store, tools: [tool(async () => 'ok')], gateway: { async complete(): Promise<ModelReply> { throw null; } } };
+    const result = await runAgent(task, deps); assert.equal(result.error, 'gateway_or_store_failed');
+    assert.deepEqual(await runAgent(task, deps), result);
+  } finally { store.close(); }
+});
