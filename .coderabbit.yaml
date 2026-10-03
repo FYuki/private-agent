@@ -4,6 +4,8 @@ reviews:
   profile: assertive
   poem: false
   auto_review:
+    # epic宛てはCI、main宛てはCodeRabbit。時間枠をmain差分レビューへ集約する。
+    # base_branchesへepicを追加しない。再レビューは親が @coderabbitai review で依頼する。
     enabled: true
     drafts: false
     ignore_title_keywords: ['WIP', 'DO NOT MERGE']
