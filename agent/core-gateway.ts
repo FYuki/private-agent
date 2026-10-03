@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { ModelGateway, ModelReply } from './contracts.ts';
 
-// 初期接続は明示的に設定したローカルCoreだけ。環境のAPIキーは参照しない。
+/** 明示したlocalhost Coreにcharacter IDを転送する。環境APIキー、自動retry、redirectは使わない。 */
 export class CoreGateway implements ModelGateway {
   private client: OpenAI;
   constructor(baseURL: string) {

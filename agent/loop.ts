@@ -40,6 +40,7 @@ function reply(value: ModelReply): ModelReply {
   return structuredClone(value);
 }
 
+/** 権限・schema・予算を検証して逐次実行する。未知の書込結果は停止し、再呼出しで自動再実行しない。 */
 export async function runAgent(task: AgentTask, deps: { gateway: ModelGateway; tools: ToolExecutor[]; store: RunStore }, external = new AbortController().signal): Promise<AgentResult> {
   task = structuredClone(task);
   for (const id of [task.owner, task.runId, task.characterId]) if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('invalid_identity');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {withCleanup,startProcess} from './resources.ts';
 import {readFile,writeFile,mkdir,chmod} from 'node:fs/promises';
 import {resolve} from 'node:path';
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -13,13 +13,15 @@ await mkdir('.local/evidence',{recursive:true});
 const fixture=resolve('.local/fixture-cli.mjs');
 await writeFile(fixture,'#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on("end",()=>{console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"5"}}));console.log(JSON.stringify({type:"turn.completed"}));});\n');
 await chmod(fixture,0o700);
+await withCleanup(async scope => {
 const startAt=Date.now()+1000;
 const job=await api('/api/jobs',{name:'Real-time finite fixture',provider:'codex-luna',prompt:'Synthetic 2+3',startAt,intervalSeconds:60,maxRuns:2,enabled:true,overlapPolicy:'skip'},crypto.randomUUID());
+scope.defer(async()=>{await api('/api/jobs/'+job.id+'/disable',{});});
 const generic=await api('/api/jobs',{name:'Finite generic agent fixture',provider:'agent-fixture',agent:{characterId:'alice',toolset:'fixture-v1'},prompt:'Synthetic 2+3',startAt,intervalSeconds:60,maxRuns:2,enabled:true,overlapPolicy:'skip'},crypto.randomUUID());
-const poller=spawn(process.execPath,['--import','tsx','wsl-worker/main.ts'],{stdio:'ignore',env:{...process.env,CONTROL_URL:base,WORKER_TOKEN:tokens.worker,WORKER_PROVIDER:'codex-luna',POLL_INTERVAL_MS:'1000',CODEX_BIN:fixture}});
-const agentPoller=spawn(process.execPath,['--import','tsx','wsl-worker/main.ts'],{stdio:'ignore',env:{...process.env,CONTROL_URL:base,WORKER_TOKEN:tokens.worker,WORKER_PROVIDER:'agent-fixture',POLL_INTERVAL_MS:'1000',AGENT_STATE_DB:resolve('.local/generic-realtime.db')}});
+scope.defer(async()=>{await api('/api/jobs/'+generic.id+'/disable',{});});
+await startProcess(scope,process.execPath,['--import','tsx','wsl-worker/main.ts'],{stdio:'ignore',env:{...process.env,CONTROL_URL:base,WORKER_TOKEN:tokens.worker,WORKER_PROVIDER:'codex-luna',POLL_INTERVAL_MS:'1000',CODEX_BIN:fixture}});
+await startProcess(scope,process.execPath,['--import','tsx','wsl-worker/main.ts'],{stdio:'ignore',env:{...process.env,CONTROL_URL:base,WORKER_TOKEN:tokens.worker,WORKER_PROVIDER:'agent-fixture',POLL_INTERVAL_MS:'1000',AGENT_STATE_DB:resolve('.local/generic-realtime.db')}});
 const ticks:number[]=[];
-try{
  // Wall-clock timer drives two real occurrences. No once() call and no past/future tick injection.
  for(let slot=0;slot<2;slot++){
   const target=startAt+slot*60000+50;
@@ -32,9 +34,4 @@ try{
  assert(ticks[1]-ticks[0]>=59000);
  const report={mode:'real-time timer + real polling processes + fixture CLI and generic tool loop (no live inference or Core service)',at:new Date().toISOString(),scheduledIntervalMs:60000,ticks,observedIntervalMs:ticks[1]-ticks[0],successfulRuns:4,genericRuns:2,genericResult:'alice: 5'};
  await writeFile('.local/evidence/realtime-measurement.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
-}finally{
- await api('/api/jobs/'+job.id+'/disable',{});
- await api('/api/jobs/'+generic.id+'/disable',{});
- poller.kill('SIGTERM');await Promise.race([new Promise(r=>poller.once('close',r)),sleep(3000)]);if(poller.exitCode===null)poller.kill('SIGKILL');
- agentPoller.kill('SIGTERM');await Promise.race([new Promise(r=>agentPoller.once('close',r)),sleep(3000)]);if(agentPoller.exitCode===null)agentPoller.kill('SIGKILL');
-}
+});
