@@ -1,5 +1,7 @@
 # private-agent
 
+汎用エージェント基盤は [agent-runtime](docs/agent-runtime.md) を参照。ローカル限定の合成ジョブは有限スケジュール、実poller、検証済みtool loop、D1結果保存まで接続済み。Core実サービスのfixture providerとは実HTTPで結合確認済み。実LLMとCore実モデルの定期接続は未実施。従来のCLIジョブはそのまま利用できる。
+
 定期タスクで **GPT-6 Luna / Devin SWE-2** を呼び、状態と結果を記録する最小MVPです。Cloudflare Workers + Workflows + D1が予定・台帳を持ち、Ubuntu WSLの同じworkerを設定違いで複製できます。初期受け入れは知識要約専用ではなく、有限の定期実行です。
 
 **本番未デプロイ・cron無効・mainへのマージはユーザーレビュー待ち。** スマホ向け画面は閲覧とcancelのみ。ローカルはlocalhost限定です。
@@ -11,9 +13,9 @@
 | `codex-luna` | 公式Codex CLI 0.159.0 | `gpt-6-luna` / low | 既存ChatGPTログインを強制 |
 | `pi-swe2` | Pi CLI 0.87.1 + 既存 `pi-devin-connector` 0.1.2 | `devin/swe-2-medium` | 既存PiのDevin認証 |
 
-独自のOAuth、HTTP/SSE、モデルカタログ、LLM思考ループは実装しません。CLIは既存インストールを使用し、自動インストール・更新もしません。Piコネクターは第三者製で、Devinの公式SDKではありません。既に導入済みだったものを使用しました。Devin公式CLI 3000.11.3の認証・SWE-2利用可能一覧も確認しましたが、今回の実行経路はPiです。新しい接続先や課金APIへfallbackしません。
+既存CLI経路のOAuth、provider固有HTTP/SSE、モデルカタログはCLIへ委譲します。別モジュールにはCore向け非ストリーミングHTTPアダプターと上限付きtool loopを実装済みで、Coreのfixture providerとの結合を確認しています。Core実LLMによる定期実行は未検証です。CLIは既存インストールを使用し、自動インストール・更新もしません。Piコネクターは第三者製で、Devinの公式SDKではありません。既に導入済みだったものを使用しました。Devin公式CLI 3000.11.3の認証・SWE-2利用可能一覧も確認しましたが、今回の実行経路はPiです。新しい接続先や課金APIへfallbackしません。
 
-LangGraphは未導入です。必要になればWSL内の`Runner`（`provider, prompt, AbortSignal -> result`）を置換できます。Workflowsの責務は予定の受付とD1への投入1ステップのみで、思考グラフを二重管理しません。digital-soulsは必須依存にせず未対応providerとして明示拒否します。
+LangGraphは未導入です。必要になればWSL内の`Runner`（`provider, prompt, AbortSignal -> result`）を置換できます。Workflowsの責務は予定の受付とD1への投入1ステップのみで、思考グラフを二重管理しません。Coreは任意の交換可能なModelGatewayで、既存CLIジョブの必須依存ではありません。定期queueのCore実モデルproviderはまだ許可していません。
 
 ## ローカル起動（Node 24 / Ubuntu）
 
@@ -56,7 +58,7 @@ npm run test:integration -- --live
 
 ## 設定とAPI
 
-`POST /api/jobs`に`examples/schedule.disabled.json`の形を渡し、`Idempotency-Key`ヘッダーを付けます。同じkey/同じ入力は同じjob、異なる入力は409。`provider`は固定2種類、任意コマンド・パス・URLは受け付けません。`startAt`はUTC epoch ms、間隔60〜86400秒、最大1〜10回。予定作成とcronの有効化は別です。予定変更は旧jobをdisableし、新keyで作成します。
+`POST /api/jobs`に`examples/schedule.disabled.json`の形を渡し、`Idempotency-Key`ヘッダーを付けます。同じkey/同じ入力は同じjob、異なる入力は409。CLI用`provider`は`codex-luna`と`pi-swe2`です。local MODEでは合成専用`agent-fixture`も指定でき、`agent: {"characterId":"alice","toolset":"fixture-v1"}`が必須です（characterIdはalice/bobのみ）。productionではfixture作成・取得を拒否します。任意コマンド・パス・URLは受け付けません。`startAt`はUTC epoch ms、間隔60〜86400秒、最大1〜10回。予定作成とcronの有効化は別です。予定変更は旧jobをdisableし、新keyで作成します。
 
 `overlapPolicy`は`skip`のみ（省略時もskip）。同じjobのstarting/queued/runningまたは停止未確認の予約枠があれば、今回をskippedとして新しいWorkflowを作りません。別jobは別lockで、model/account上限は別途共有します。過去の未受付回はcatchupせず、スキップ記録も有限スケジュール内の最大10件です。常時運用の無期限スケジュール・保持管理は次段階で、本MVPの有限上限を無断解除しません。
 
@@ -81,7 +83,7 @@ model上限とgroup上限を同時に満たすjobだけを単一SQLの原子的c
 
 通常のworker pollingは30秒間隔です（`POLL_INTERVAL_MS`: 1000〜600000）。idle polling自体もHTTP/D1の負荷です。詳細: [設計・安全境界](docs/architecture.md)、[実証記録と月換算](docs/acceptance.md)。
 
-実時間の有限試験は`node --import tsx scripts/realtime-check.ts`で実行できます。実時間60秒間隔で2回だけ受付け、実pollerプロセスとfixture CLIで保存まで確認し終了します（外部モデル呼出なし、約65秒）。上記`--live`の手動tick模擬とは別の証拠です。
+実時間の有限試験は`node --import tsx scripts/realtime-check.ts`で実行できます。実時間60秒間隔で2回だけ受付け、実pollerプロセスでCLI fixture 2件とgeneric fixture 2件の保存まで確認し終了します（外部モデル呼出なし、約65秒）。上記`--live`の手動tick模擬とは別の証拠です。
 
 ## 本番化前のユーザー判断とrollback
 

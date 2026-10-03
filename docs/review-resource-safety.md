@@ -1,0 +1,11 @@
+# CodeRabbit指摘への対応と検証
+
+対象はmain PR #3の7d3b409に対するレビュー。修正はfix/review-resource-safetyからepic/agent-runtimeへPRで反映する。
+
+- realtime-check: setup開始からcleanupの対象にし、取得したjobとspawn直後のprocessを都度登録する。停止APIが失敗しても他jobと全processのcleanupを試み、元の試験失敗とcleanup失敗を両方報告する。TERM後にcloseを待ち、必要ならKILL後も待つ。停止APIが利用不能ならjob停止成功とは報告しない。
+- SQLite: DatabaseSyncより前にO_EXCL・0600でファイルを作成する。既存ファイルの権限は勝手に変更せず、不適切な所有者・権限・リンクを拒否する。ユーザーのOS権限やumaskは変更しない。呼出元が指定する信頼済み同一uidのディレクトリを前提とし、同一uidの悪意あるプロセスとの隔離は提供しない。
+- README: provider固有接続をCLIへ委譲する経路、実装済みCore HTTP/tool loop、local限定fixture、未検証のCore実モデル定期経路を区別する。
+- epicのauto review追加: 不採用。epicはCI、mainはCodeRabbitという既存方針に従い、1時間枠をmain差分レビューへ集約する。理由をCONTRIBUTINGと設定コメントへ明記する。再レビュー要求は親担当が行い、この修正担当は重複投稿しない。
+- docstring 5.56%警告: 公開境界の説明不足という改善点は妥当。実行ループ、Core転送、SQLite予約/確定、cleanupの責務・失敗条件をJSDocへ追加した。一律のcoverage値を機能安全の証明にはしない。閾値は下げず、全体の閾値達成や警告解消は未確認として残す。
+
+独立した失敗系テストは、2件目setup失敗、disable失敗、spawn失敗、TERMに従わない実子process、SQLite開始前の0600、既存0644の無変更拒否、symlink/hardlink、書込可能directoryの拒否を確認する。CIでは従来のD1/Workflows/実時間有限スケジュールも継続実行する。

@@ -30,7 +30,7 @@ async function refresh(s=session){
     $('content').append(el('h2','予定'));
     for(const j of data.jobs){
       const a=el('article','');
-      a.append(el('strong',j.name),el('p',j.provider+' · '+(j.enabled?'設定有効':'停止中')),
+      a.append(el('strong',j.name),el('p',j.provider+(j.character_id?' / '+j.character_id:'')+' · '+(j.enabled?'設定有効':'停止中')),
         el('p',new Date(j.start_at).toLocaleString()+' / '+j.interval_seconds+'秒ごと / 最大'+j.max_runs+'回','muted'));
       $('content').append(a);
     }

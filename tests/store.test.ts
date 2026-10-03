@@ -15,6 +15,18 @@ class Sqlite implements Database{
  async batch(statements:Statement[]){this.db.exec('BEGIN');try{for(const s of statements)await s.run();this.db.exec('COMMIT');}catch(e){this.db.exec('ROLLBACK');throw e;}}
 }
 const input={name:'Synthetic',provider:'codex-luna',prompt:'2+3?',startAt:1000000,intervalSeconds:60,maxRuns:2,enabled:true};
+test('generic fixture requires explicit profile, capacity and validated character',async()=>{
+ const {s}=setup();const generic={...input,provider:'agent-fixture',agent:{characterId:'alice',toolset:'fixture-v1'}};
+ await assert.rejects(s.create('a','bad',{...generic,agent:{characterId:'alice',toolset:'shell'}}));
+ await s.create('a','generic',generic);await s.tick();
+ assert.equal(await s.claim('a','old'),null);
+ assert.equal(await s.claim('a','new','agent-fixture'),null);
+ const limits={models:{'codex-luna':1,'pi-swe2':1,'agent-fixture':1},groups:{a:1}};
+ const run=await s.claim('a','new','agent-fixture','a',limits);assert.equal(run?.agent?.characterId,'alice');
+ assert.equal(await s.claim('b','other','agent-fixture','a',limits),null);
+ await s.finish('a','new',run!.id,run!.token!,'alice: 5',null);
+ assert.equal((await s.list('a')).runs[0].result,'alice: 5');
+});
 function setup(){let now=1000000;const db=new Sqlite(),s=new Store(db,()=>now);const admission=s.tick.bind(s);s.tick=async(...args)=>{const r=await admission(...args);for(const p of r.pending)await s.activate(p.id);return r;};return {s,db,advance:(ms:number)=>now+=ms};}
 test('finite schedules, duplicate create and ticks, immutable idempotency payload',async()=>{
  const {s,advance}=setup();const id=await s.create('a','key',input);assert.equal(await s.create('a','key',input),id);

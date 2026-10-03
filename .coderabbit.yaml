@@ -1,0 +1,21 @@
+language: ja-JP
+tone_instructions: '具体的な不具合と根拠を優先し、適用した文書の規則を示してください。'
+reviews:
+  profile: assertive
+  poem: false
+  auto_review:
+    # epic宛てはCI、main宛てはCodeRabbit。時間枠をmain差分レビューへ集約する。
+    # base_branchesへepicを追加しない。再レビューは親が @coderabbitai review で依頼する。
+    enabled: true
+    drafts: false
+    ignore_title_keywords: ['WIP', 'DO NOT MERGE']
+    ignore_usernames: ['dependabot[bot]', 'github-actions[bot]', 'renovate[bot]']
+  path_instructions:
+    - path: '**/*'
+      instructions: 'CONTRIBUTING.md、docs/architecture.md、docs/agent-runtime.md、docs/adr/0001-agent-loop.md を読み、違反を指摘する場合は適用規則と具体的な影響を示してください。'
+chat:
+  art: false
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns: ['CONTRIBUTING.md', 'docs/architecture.md', 'docs/agent-runtime.md', 'docs/adr/*.md']
