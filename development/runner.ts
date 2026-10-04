@@ -42,9 +42,9 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
   async createPullRequest(b,base,sha){await api('/api/runs/'+run.id+'/heartbeat',{token:run.token});const url=(await gh(['pr','create','--repo',REPO,'--draft','--head',b,'--base',base,'--title','feat: 開発タスク '+id,'--body','専用 worktree の開発タスクによる変更です。隔離環境で型検査とテストを実行しました。ユーザーレビュー待ち。自動マージは行いません。'])).trim();if(!url.startsWith('https://github.com/'+REPO+'/pull/')||!/^\d+$/.test(url.slice(('https://github.com/'+REPO+'/pull/').length)))throw Error('invalid_pr_response');return {url};}
  };
  await github.verifyRepository();
- const existingBranch=(await git(['for-each-ref','--format=%(refname)','refs/heads/'+branch])).trim();
- if(existingBranch.split('\n').includes('refs/heads/'+branch))throw Error('reserved_branch_requires_admin_resolution');
  const prepared=await operation(ledger,'prepare',{id,owner:run.owner,repoId,base:spec.baseRef,mode,validation:policy.validation},async()=>{
+  const existingBranch=(await git(['for-each-ref','--format=%(refname)','refs/heads/'+branch])).trim();
+  if(existingBranch.split('\n').includes('refs/heads/'+branch))throw Error('reserved_branch_requires_admin_resolution');
   try{await lstat(directory);throw Error('task_directory_already_exists');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   await git(['fetch','--no-tags',REMOTE,spec.baseRef]);const baseSha=(await git(['rev-parse','FETCH_HEAD'])).trim();if(!/^[a-f0-9]{40}$/.test(baseSha))throw Error('invalid_base');
   await git(['worktree','add','-b',branch,directory,baseSha]);await mkdir(join(directory,'node_modules'));
