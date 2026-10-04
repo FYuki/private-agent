@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { DevelopmentClient } from '../development/client.ts';
+import { client } from '../wsl-worker/main.ts';
+const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
+const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker);
+assert.equal((await fetch(base+'api/development/config')).status,401);
+const config=await viewer.profiles();assert.equal(config.defaults.orchestratorProfileId,'plan-codex-luna');
+const existing=await viewer.request('/api/state');for(const job of existing.jobs){if(job.name==='Development task'){const status=await viewer.status(job.id);if(status.spec.goal==='Synthetic API lifecycle; do not execute a model.')await viewer.cancel(job.id);}}
+const key=crypto.randomUUID(),spec={repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic API lifecycle; do not execute a model.',acceptanceCriteria:['cancel works']};
+const {id}=await viewer.submit(spec,key);assert.equal((await viewer.submit(spec,key)).id,id);
+await assert.rejects(viewer.submit({...spec,goal:'conflicting'},key),/409/);
+await assert.rejects(new DevelopmentClient(base,tokens.other).status(id),/403/);
+assert.throws(()=>viewer.submit({...spec,executionProfileId:'edit-claude'},crypto.randomUUID()),/claude/);
+await worker('/api/development/runner-heartbeat',{available:true});
+assert.equal(await client(base,tokens.other)('/api/claim',{protocol:'absolute-deadline-v1'}),null);
+const run=await worker('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna'}) as any;assert.equal(run.job_id,id);assert.equal(run.deadline-run.issued_at,900000);
+await viewer.cancel(id);await assert.rejects(worker('/api/runs/'+run.id+'/heartbeat',{token:run.token}),/409/);
+await worker('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'cancelled'});
+assert.equal((await viewer.status(id)).state,'cancelled');await worker('/api/development/runner-heartbeat',{available:false});
+console.log(JSON.stringify({localD1:true,authenticatedApi:true,idempotency:true,cancellation:true,developmentBudgetMs:900000,realModel:false}));

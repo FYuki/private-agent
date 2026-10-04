@@ -3,8 +3,11 @@ import {Store} from './store.ts';
 import {authenticate} from './auth.ts';
 import {Fault,LIMITS,exact,object,str,integer,provider,capacity} from '../shared/contracts.ts';
 import {html,script} from './ui.ts';
+import {developmentHtml,developmentScript} from './development-ui.ts';
 import {MeasuredDatabase} from './measurement.ts';
 import {dispatch} from './dispatch.ts';
+import {DevelopmentStore} from './development-store.ts';
+import {DEVELOPMENT_DEFAULTS,DEVELOPMENT_PROFILES} from '../shared/development.ts';
 type Tick={runId:string};
 export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
 export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
@@ -32,8 +35,16 @@ export default {
    if(env.MODE==='local'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw new Fault(403,'localhost_only');
    // The unauthenticated shell contains no jobs, prompts, owner IDs or results.
    if(req.method==='GET'&&(path==='/'||path==='/app.js'))return new Response(path==='/'?html:script,{headers:{...headers,'content-type':path==='/'?'text/html; charset=utf-8':'text/javascript; charset=utf-8'}});
+   if(req.method==='GET'&&(path==='/development'||path==='/development.js'))return new Response(path==='/development'?developmentHtml:developmentScript,{headers:{...headers,'content-type':path==='/development'?'text/html; charset=utf-8':'text/javascript; charset=utf-8'}});
    const p=await authenticate(req,env.MODE,env.AUTH_JSON),store=new Store(db);
    if(req.headers.get('origin')&&req.headers.get('origin')!==url.origin)throw new Fault(403,'origin_denied');
+   const dev=new DevelopmentStore(store);
+   if(req.method==='GET'&&path==='/api/development/config'){
+     if(p.role!=='viewer')throw new Fault(403,'role_denied');
+     return json({defaults:DEVELOPMENT_DEFAULTS,profiles:DEVELOPMENT_PROFILES,repoId:'private-agent',baseRef:'epic/development-runner'});
+   }
+   const devTask=path.match(/^\/api\/development\/tasks\/([a-f0-9-]+)(?:\/(cancel|operation))?$/);
+   if(req.method==='GET'&&devTask&&!devTask[2]){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await dev.status(p.owner,devTask[1]));}
    if(req.method==='GET'&&path==='/api/state'){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await store.list(p.owner));}
    if(req.method==='GET'&&path.startsWith('/api/ticks/')){
      if(p.role!=='viewer'||env.MODE!=='local')throw new Fault(403,'role_denied');
@@ -42,12 +53,31 @@ export default {
    }
    if(req.method!=='POST')throw new Fault(404,'not_found');
    const b=await body(req);
+   if(path==='/api/development/tasks'){
+     if(p.role!=='viewer')throw new Fault(403,'role_denied');
+     return json({id:await dev.submit(p.owner,str(req.headers.get('idempotency-key'),100),b)},201);
+   }
+   if(path==='/api/development/runner-heartbeat'){
+     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['available']);if(typeof b.available!=='boolean')throw new Fault(400,'invalid_available');
+     await dev.announce(p.owner,p.id,b.available);return json({ok:true});
+   }
+   if(devTask){
+     const [,id,action]=devTask;
+     if(action==='cancel'){if(p.role!=='viewer')throw new Fault(403,'role_denied');exact(b,[]);await dev.status(p.owner,id);return json(await store.cancel(p.owner,id+':0'));}
+     if(action==='operation'){
+       if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['token','name','fingerprint','result']);
+       if(!['prepare','plan','edit','test','commit','push','pull-request'].includes(b.name as string)||typeof b.fingerprint!=='string'||! /^[a-f0-9]{64}$/.test(b.fingerprint))throw new Fault(400,'invalid_operation');
+       return json(await dev.operation(p.owner,p.id,id,str(b.token,64),b.name as string,b.fingerprint,b.result===undefined?undefined:str(b.result,8192)));
+     }
+   }
    if(path==='/api/claim'){
-     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol']);
-     if(b.protocol!=='absolute-deadline-v1')throw new Fault(400,'worker_upgrade_required');
+     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol','taskKind']);
+     const kind=b.taskKind??'answer';if(!['answer','development'].includes(kind as string))throw new Fault(400,'invalid_task_kind');
+     if(b.protocol!==(kind==='development'?'development-v1':'absolute-deadline-v1'))throw new Fault(400,'worker_upgrade_required');
+     if(kind==='development'&&!await store.q('SELECT id FROM development_workers WHERE id=? AND owner=? AND reason IS NULL AND last_seen>?',p.id,p.owner,Date.now()-30000).first())throw new Fault(409,'runner_not_ready');
      if(b.provider==='agent-fixture'&&env.MODE!=='local')throw new Fault(403,'fixture_local_only');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
-     return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits));
+     return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits,kind as 'answer'|'development'));
    }
    const runRoute=path.match(/^\/api\/runs\/([a-f0-9-]+:\d+)\/(heartbeat|complete|cancel)$/);
    if(runRoute){
@@ -58,7 +88,7 @@ export default {
      exact(b,['token','result','error']);const token=str(b.token,64);
      if((b.result===null)===(b.error===null))throw new Fault(400,'one_outcome_required');
      const result=b.result===null?null:str(b.result,LIMITS.outputBytes);
-     const errors=['provider_failed','timeout','output_limit','cancelled','cli_unavailable','invalid_provider_output','incomplete_provider_output','unexpected_tool_use','pi_devin_extension_required','invalid_text'];
+     const errors=['provider_failed','timeout','output_limit','cancelled','cli_unavailable','invalid_provider_output','incomplete_provider_output','unexpected_tool_use','pi_devin_extension_required','invalid_text','operation_blocked'];
      const error=b.error===null?null:str(b.error,100);if(error&&!errors.includes(error))throw new Fault(400,'invalid_error');
      return json(await store.finish(p.owner,p.id,id,token,result,error));
    }
