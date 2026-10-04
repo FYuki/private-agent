@@ -100,4 +100,6 @@ Cloudflare料金の厳密hard capは提供しません。実行回数・時間�
 Rollback: cronを無効化→対象jobをdisable→workerを終了→以前のWorker versionへ戻します。実行中の予約枠は停止確認かdeadline後に解放します。D1は削除せず保全し、schema変更を戻す前にexport/互換性を確認します。ローカルではこのタスクのWrangler/workerプロセスだけを終了します。
 # TAKT execution adapter
 
+管理repoの追加と公開しない正常完了の設定は[repo registry](docs/repository-registry.md)を参照してください。
+
 Development tasks default to programmatic orchestration with the pinned TAKT `simple` workflow. Setup, preserved user runtime profiles, capacity reservations, interruption behavior and rollback: [TAKT adapter](docs/takt-adapter.md).

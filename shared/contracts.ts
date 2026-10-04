@@ -41,11 +41,13 @@ export type Job = JobInput & {id:string; owner:string; created_at:number};
 export type Run = {id:string; job_id:string; owner:string; slot:number; due_at:number; state:'starting'|'queued'|'running'|'succeeded'|'failed'|'cancelled'|'skipped'; attempt:number; token:string|null; worker:string|null; lease_until:number|null; deadline:number|null; issued_at:number; result:string|null; error:string|null; provider:Provider; prompt:string;agent?:AgentSpec;task_kind?:'answer'|'development';budget_ms?:number;development?:import('./development.ts').DevelopmentInput};
 export type Principal={owner:string; role:'viewer'|'worker'; id:string; hash:string;group?:string};
 export type Capacity={models:Record<'codex-luna'|'pi-swe2',number>&Partial<Record<'agent-fixture'|'codex-sol',number>>;groups:Record<string,number>};
+/** 管理設定の有限上限。実際の稼働数はLIMITS_JSONで別途設定し、TAKT内部の直列実行は変えない。 */
+export const CAPACITY_MAX={models:{'codex-sol':5,'codex-luna':30,'pi-swe2':16,'agent-fixture':16},group:35} as const;
 export function capacity(raw:unknown):Capacity{
  const c=object(raw);exact(c,['models','groups']);const m=object(c.models),g=object(c.groups);exact(m,[...PROVIDERS,'codex-sol']);
- if(m['codex-sol']!==undefined)integer(m['codex-sol'],0,16);
- for(const p of PROVIDERS)if(p!=='agent-fixture'||m[p]!==undefined)integer(m[p],0,16);
- for(const [k,v] of Object.entries(g)){if(!/^[a-zA-Z0-9_-]{1,64}$/.test(k))throw new Fault(400,'invalid_group');integer(v,0,16);}
+ if(m['codex-sol']!==undefined)integer(m['codex-sol'],0,CAPACITY_MAX.models['codex-sol']);
+ for(const p of PROVIDERS)if(p!=='agent-fixture'||m[p]!==undefined)integer(m[p],0,CAPACITY_MAX.models[p]);
+ for(const [k,v] of Object.entries(g)){if(!/^[a-zA-Z0-9_-]{1,64}$/.test(k))throw new Fault(400,'invalid_group');integer(v,0,CAPACITY_MAX.group);}
  return c as unknown as Capacity;
 }
 export const terminal = (s:string) => ['succeeded','failed','cancelled'].includes(s);

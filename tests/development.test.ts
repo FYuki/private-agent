@@ -30,6 +30,26 @@ test('TAKT completes after 75 minutes and releases both model reservations only 
  }finally{db.db.close();}
 });
 function setup(){const db=new DB();let now=1000000;const store=new Store(db,()=>now);return {db,store,dev:new DevelopmentStore(store),advance:(ms:number)=>now+=ms};}
+test('voice local-only results and artifact ledger remain owner-scoped',async()=>{
+ const {db,store,dev}=setup();try{
+  const id=await dev.submit('a','voice',{repoId:'local-GPT-live',baseRef:'epic/transport-playback',goal:'synthetic',acceptanceCriteria:['pass']});
+  const run=(await store.claim('a','w','codex-luna','shared',{models:{...capacity.models,'codex-sol':1},groups:{shared:1}},'development','takt-simple'))!;
+  await dev.operation('a','w',id,run.token!,'artifact','a'.repeat(64),JSON.stringify({headSha:'b'.repeat(40)}));
+  await assert.rejects(dev.operation('b','w',id,run.token!,'artifact','a'.repeat(64)),/lease_lost/);
+  await store.finish('a','w',run.id,run.token!,JSON.stringify({outcome:'local_only',artifactId:'a'.repeat(64)}),null);
+  assert.equal((await dev.status('a',id)).state,'succeeded');await assert.rejects(dev.status('b',id),/not_found/);
+ }finally{db.db.close();}
+});
+test('five TAKT reservations share the Sol model cap across owners and profiles',async()=>{
+ const {db,store,dev}=setup();try{
+  const limits={models:{'codex-sol':5,'codex-luna':30,'pi-swe2':0},groups:{shared:35}};
+  for(let i=0;i<6;i++)await dev.submit('owner'+i,'takt',{...input,orchestratorProfileId:'programmatic',executionProfileId:'takt-simple'});
+  const claims=await Promise.all(Array.from({length:6},(_,i)=>store.claim('owner'+i,'worker'+i,'codex-luna','shared',limits,'development','takt-simple')));
+  assert.equal(claims.filter(Boolean).length,5);
+  const first=claims.find(Boolean)!;await store.finish(first.owner,first.worker!,first.id,first.token!,'synthetic',null);
+  const blocked=claims.findIndex(x=>!x);assert.ok(await store.claim('owner'+blocked,'replacement','codex-luna','shared',limits,'development','takt-simple'));
+ }finally{db.db.close();}
+});
 test('TAKT atomically reserves Sol plus Luna and shared quota; crash never releases by TTL alone',async()=>{
  const {db,store,dev,advance}=setup();try{
   const spec={...input,orchestratorProfileId:'programmatic',executionProfileId:'takt-simple',budgetMs:7200000};

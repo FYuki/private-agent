@@ -1,4 +1,5 @@
 import { Fault, exact, object, str, integer } from './contracts.ts';
+import { repositoryPolicy } from './repositories.ts';
 
 export const DEVELOPMENT_BUDGET_MS = 15 * 60 * 1000;
 export const DEVELOPMENT_MAX_BUDGET_MS = 24 * 60 * 60 * 1000;
@@ -19,10 +20,11 @@ export type DevelopmentInput = { repoId: string; goal: string; baseRef: string; 
 /** GUI/MCP共通の入力境界。選択可能な管理profileとrepo/baseだけを許可し、利用不能はfallbackしない。 */
 export function developmentInput(value: unknown): DevelopmentInput {
   const v = object(value); exact(v, ['repoId', 'goal', 'baseRef', 'acceptanceCriteria', 'orchestratorProfileId', 'executionProfileId', 'budgetMs']);
-  if (v.repoId !== 'private-agent') throw new Fault(400, 'repository_not_allowed');
-  if (v.baseRef !== 'epic/development-runner') throw new Fault(400, 'base_ref_not_allowed');
+  const repository = repositoryPolicy(v.repoId);
+  if (v.baseRef !== repository.baseRef) throw new Fault(400, 'base_ref_not_allowed');
   const orchestratorProfileId = v.orchestratorProfileId ?? DEVELOPMENT_DEFAULTS.orchestratorProfileId;
   const executionProfileId = v.executionProfileId ?? DEVELOPMENT_DEFAULTS.executionProfileId;
+  if(v.repoId==='local-GPT-live'&&executionProfileId!=='takt-simple')throw new Fault(400,'repository_requires_takt');
   if ((executionProfileId === 'takt-simple') !== (orchestratorProfileId === 'programmatic')) throw new Fault(400, 'orchestration_profile_mismatch');
   const budgetMs = executionProfileId === 'takt-simple' ? integer(v.budgetMs ?? 14400000, 60000, DEVELOPMENT_MAX_BUDGET_MS) : undefined;
   if (executionProfileId !== 'takt-simple' && v.budgetMs !== undefined) throw new Fault(400, 'unsupported_budget_override');
@@ -32,5 +34,5 @@ export function developmentInput(value: unknown): DevelopmentInput {
     if (!selected.available) throw new Fault(409, selected.reason!);
   }
   if (!Array.isArray(v.acceptanceCriteria) || v.acceptanceCriteria.length < 1 || v.acceptanceCriteria.length > 8) throw new Fault(400, 'invalid_acceptance_criteria');
-  return { repoId: v.repoId, goal: str(v.goal, 4096), baseRef: v.baseRef, acceptanceCriteria: v.acceptanceCriteria.map(x => str(x, 512)), orchestratorProfileId: orchestratorProfileId as string, executionProfileId: executionProfileId as string, ...(budgetMs ? {budgetMs} : {}) };
+  return { repoId: v.repoId as string, goal: str(v.goal, 4096), baseRef: repository.baseRef, acceptanceCriteria: v.acceptanceCriteria.map(x => str(x, 512)), orchestratorProfileId: orchestratorProfileId as string, executionProfileId: executionProfileId as string, ...(budgetMs ? {budgetMs} : {}) };
 }

@@ -1,13 +1,14 @@
 import {WorkflowEntrypoint,type WorkflowEvent,type WorkflowStep} from 'cloudflare:workers';
 import {Store} from './store.ts';
 import {authenticate} from './auth.ts';
-import {Fault,LIMITS,exact,object,str,integer,provider,capacity} from '../shared/contracts.ts';
+import {Fault,LIMITS,CAPACITY_MAX,exact,object,str,integer,provider,capacity} from '../shared/contracts.ts';
 import {html,script} from './ui.ts';
 import {developmentHtml,developmentScript} from './development-ui.ts';
 import {MeasuredDatabase} from './measurement.ts';
 import {dispatch} from './dispatch.ts';
 import {DevelopmentStore} from './development-store.ts';
 import {DEVELOPMENT_DEFAULTS,DEVELOPMENT_PROFILES} from '../shared/development.ts';
+import {repositoryChoices} from '../shared/repositories.ts';
 type Tick={runId:string};
 export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
 export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
@@ -41,7 +42,8 @@ export default {
    const dev=new DevelopmentStore(store);
    if(req.method==='GET'&&path==='/api/development/config'){
      if(p.role!=='viewer')throw new Fault(403,'role_denied');
-     return json({defaults:DEVELOPMENT_DEFAULTS,profiles:DEVELOPMENT_PROFILES,repoId:'private-agent',baseRef:'epic/development-runner'});
+     let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
+     return json({defaults:DEVELOPMENT_DEFAULTS,profiles:DEVELOPMENT_PROFILES,repoId:'private-agent',baseRef:'epic/development-runner',repositories:repositoryChoices,capacityMax:CAPACITY_MAX,capacity:{models:limits.models,sharedGroupLimit:limits.groups[p.group||p.owner]??0},taktProviderConcurrency:1});
    }
    const devTask=path.match(/^\/api\/development\/tasks\/([a-f0-9-]+)(?:\/(cancel|operation|progress))?$/);
    if(req.method==='GET'&&devTask&&!devTask[2]){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await dev.status(p.owner,devTask[1]));}
@@ -68,7 +70,7 @@ export default {
      if(action==='cancel'){if(p.role!=='viewer')throw new Fault(403,'role_denied');exact(b,[]);await dev.status(p.owner,id);return json(await store.cancel(p.owner,id+':0'));}
      if(action==='operation'){
        if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['token','name','fingerprint','result']);
-        if(!['prepare','plan','edit','takt','test','commit','push','pull-request'].includes(b.name as string)||typeof b.fingerprint!=='string'||! /^[a-f0-9]{64}$/.test(b.fingerprint))throw new Fault(400,'invalid_operation');
+        if(!['prepare','plan','edit','takt','test','commit','artifact','push','pull-request'].includes(b.name as string)||typeof b.fingerprint!=='string'||! /^[a-f0-9]{64}$/.test(b.fingerprint))throw new Fault(400,'invalid_operation');
        return json(await dev.operation(p.owner,p.id,id,str(b.token,64),b.name as string,b.fingerprint,b.result===undefined?undefined:str(b.result,8192)));
      }
    }
