@@ -1,15 +1,20 @@
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
+import {repositoryBindings,preflightRepository} from '../development/repositories.ts';
 import assert from 'node:assert/strict';
 import {DevelopmentClient} from '../development/client.ts';
 import {client} from '../wsl-worker/main.ts';
 import {developmentOnce} from '../development/runner.ts';
 if(!process.argv.includes('--publish-authorized'))throw Error('explicit_publication_authorization_required');
 await import('./development-preflight.ts');
+const worktrees=process.env.DEVELOPMENT_WORKTREES;
+if(!worktrees)throw Error('explicit_disjoint_worktrees_required');
+const [binding]=repositoryBindings([{repoId:'private-agent',root:process.cwd(),worktrees,owners:['local'],visibility:process.env.DEVELOPMENT_REPOSITORY_VISIBILITY||'private',publishAuthorized:true}]);
+await preflightRepository(binding);
 const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
 const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker);
 const {id}=await viewer.submit({repoId:'private-agent',baseRef:'epic/development-runner',goal:'Add shared/development-status.ts exporting developmentStatusLabel(state: string): string. Return Japanese labels for queued=待機中, running=実行中, succeeded=完了, failed=失敗, cancelled=キャンセル済み; unknown values return 不明. Add a focused test in tests/development-status.test.ts. This is a small real development-runner acceptance task. Change no other files.',acceptanceCriteria:['All six cases pass in a focused test.','Existing typecheck and tests pass.']},crypto.randomUUID());
 await worker('/api/development/runner-heartbeat',{available:true});
 const online=setInterval(()=>{void worker('/api/development/runner-heartbeat',{available:true});},10000);
-try{await developmentOnce(worker,{repository:process.cwd(),worktrees:resolve('.local/task-worktrees'),codexPackage:process.env.CODEX_PACKAGE||'',authFile:process.env.CODEX_AUTH_FILE||'',dependencies:resolve('node_modules'),publishAuthorized:true},new AbortController().signal);}finally{clearInterval(online);await worker('/api/development/runner-heartbeat',{available:false});}
+try{await developmentOnce(worker,{registry:[binding],repository:process.cwd(),worktrees,codexPackage:process.env.CODEX_PACKAGE||'',authFile:process.env.CODEX_AUTH_FILE||'',dependencies:resolve('node_modules'),publishAuthorized:true},new AbortController().signal);}finally{clearInterval(online);await worker('/api/development/runner-heartbeat',{available:false});}
 const status=await viewer.status(id);await mkdir('.local/evidence',{recursive:true});await writeFile('.local/evidence/development-live.json',JSON.stringify(status,null,2),{mode:0o600});console.log(JSON.stringify({id,state:status.state,error:status.error,operations:status.operations,result:status.result}));assert.equal(status.state,'succeeded');

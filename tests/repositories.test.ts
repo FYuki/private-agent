@@ -66,3 +66,15 @@ test('fixed browser validation runs real Node syntax and standard tests without 
   await writeFile(join(root,'browser/playback-ack.mjs'),'export const value = 4;');
   const [file,...args]=validationCommands('local-GPT-live')[1];assert.equal(file,'/usr/bin/node');assert.notEqual(spawnSync(process.execPath,[...args],options).status,0);
 });
+
+test('repository and worktree roots are disjoint in both directions, including dot-prefixed children',()=>{
+  for(const [root,worktrees] of [
+    ['/srv/repo','/srv/repo'],['/srv/repo','/srv/repo/tasks'],
+    ['/srv/tasks/repo','/srv/tasks'],['/srv/repo','/srv/repo/..cache'],
+    ['/srv/tasks/..cache','/srv/tasks'],['/','/srv/tasks'],['/srv/repo','/'],
+  ])assert.throws(()=>repositoryBindings([{...binding,root,worktrees}]),/overlapping_repository_paths/);
+  for(const [root,worktrees] of [
+    ['/srv/repo','/srv/tasks'],['/srv/repo','/srv/repo-tasks'],
+    ['/srv/repo','/srv/..cache'],['/srv/..cache','/srv/tasks'],
+  ])assert.doesNotThrow(()=>repositoryBindings([{...binding,root,worktrees}]));
+});
