@@ -1,0 +1,10 @@
+[
+  {
+    "repoId": "local-GPT-live",
+    "root": "/absolute/path/to/local-GPT-live",
+    "worktrees": "/absolute/path/to/voice-task-worktrees",
+    "owners": ["local"],
+    "visibility": "public",
+    "publishAuthorized": false
+  }
+]

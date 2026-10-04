@@ -116,6 +116,21 @@ test('global per-model and shared auth limits, competing workers never exceed ei
  await s.finish('a',r.worker!,r.id,r.token!,'ok',null);
  assert(await s.claim('b','b4','codex-luna','shared',limits));
 });
+test('approved Luna30 and shared35 remain atomic finite database reservation limits',async()=>{
+ const {s,db}=setup();try{
+  const limits=capacity({models:{'codex-sol':5,'codex-luna':30,'pi-swe2':16},groups:{shared:35}});
+  for(let i=0;i<31;i++)await s.create('luna'+i,'luna',input);
+  for(let i=0;i<6;i++)await s.create('pi'+i,'pi',{...input,provider:'pi-swe2'});
+  await s.tick();
+  const luna=await Promise.all(Array.from({length:31},(_,i)=>s.claim('luna'+i,'lw'+i,'codex-luna','shared',limits)));
+  assert.equal(luna.filter(Boolean).length,30);
+  const pi=await Promise.all(Array.from({length:6},(_,i)=>s.claim('pi'+i,'pw'+i,'pi-swe2','shared',limits)));
+  assert.equal(pi.filter(Boolean).length,5);
+  assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE hold_until>0").get()!.n,35);
+  const first=luna.find(Boolean)!;await s.finish(first.owner,first.worker!,first.id,first.token!,'synthetic',null);
+  const blocked=pi.findIndex(x=>!x);assert.ok(await s.claim('pi'+blocked,'replacement','pi-swe2','shared',limits));
+ }finally{db.db.close();}
+});
 test('zero pauses a model/group; negative is invalid; cancel reserves until worker acknowledgement',async()=>{
  const {s,advance}=setup();for(let i=0;i<2;i++)await s.create('a','j'+i,input);await s.tick();
  const limits=capacity({models:{'codex-luna':0,'pi-swe2':1},groups:{a:2}});assert.equal(await s.claim('a','w',undefined,'a',limits),null);

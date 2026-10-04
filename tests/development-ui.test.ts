@@ -9,10 +9,18 @@ function submissionPage(){
  runInNewContext(developmentScript,{document:{getElementById:get,createElement:element},AbortController,crypto,
   fetch:(path:string,options:any)=>new Promise((resolve,reject)=>requests.push({path,options,resolve,reject}))});
  const respond=(request:any,value:unknown)=>request.resolve({ok:true,json:async()=>value});
- const login=async(token:string)=>{get('token').value=token;const pending=get('login').onsubmit({preventDefault(){}});respond(requests.shift(),{repoId:'private-agent',baseRef:'epic/development-runner',profiles:{orchestrators:[],executors:[]},defaults:{}});await pending;};
+ const login=async(token:string)=>{get('token').value=token;const pending=get('login').onsubmit({preventDefault(){}});respond(requests.shift(),{repoId:'private-agent',baseRef:'epic/development-runner',repositories:[{repoId:'private-agent',baseRef:'epic/development-runner'},{repoId:'local-GPT-live',baseRef:'epic/transport-playback'}],profiles:{orchestrators:[],executors:[]},defaults:{}});await pending;};
  const submit=()=>get('task').onsubmit({preventDefault(){}}) as Promise<void>;
  return {get,requests,respond,login,submit};
 }
+test('switching fixed repository resets submission identity and fences old task responses',async()=>{
+ const p=submissionPage();await p.login('A');const oldSubmit=p.submit(),old=p.requests.shift();
+ p.get('repository').value='local-GPT-live';p.get('repository').onchange();
+ const nextSubmit=p.submit(),next=p.requests.shift(),body=JSON.parse(next.options.body);
+ assert.equal(body.repoId,'local-GPT-live');assert.equal(body.baseRef,'epic/transport-playback');assert.notEqual(old.options.headers['Idempotency-Key'],next.options.headers['Idempotency-Key']);
+ p.respond(old,{id:'a'.repeat(36)});await oldSubmit;assert.equal(p.get('task-id').value,'');
+ next.reject(Error('synthetic'));await nextSubmit;
+});
 test('session replacement restores submit while old finally cannot unlock a new submission',async()=>{
  const p=submissionPage();await p.login('A');const first=p.submit(),old=p.requests.shift();assert.equal(p.get('submit').disabled,true);
  p.get('logout').onclick();assert.equal(p.get('submit').disabled,false);assert.equal(old.options.signal.aborted,true);
