@@ -24,6 +24,6 @@ const sandbox={codexPackage:process.env.CODEX_PACKAGE!,authFile:process.env.CODE
 const announce=()=>worker('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-simple'});
 await announce();const online=setInterval(()=>{void announce().catch(()=>{});},10000),stop=new AbortController();
 process.once('SIGINT',()=>stop.abort());process.once('SIGTERM',()=>stop.abort());
-try{await developmentOnce(worker,{...sandbox,repository:process.cwd(),worktrees,publishAuthorized:true,repositoryVisibility:visibility,takt:{...sandbox,taktRuntime:process.env.TAKT_RUNTIME!,taktInputs:resolve('examples/takt'),taktRuns:resolve('.local/takt-runs'),maxProviderCalls:20}},stop.signal);}
+try{await developmentOnce(worker,{...sandbox,registry:[binding],repository:process.cwd(),worktrees,publishAuthorized:true,repositoryVisibility:visibility,takt:{...sandbox,taktRuntime:process.env.TAKT_RUNTIME!,taktInputs:resolve('examples/takt'),taktRuns:resolve('.local/takt-runs'),maxProviderCalls:20}},stop.signal);}
 finally{clearInterval(online);await worker('/api/development/runner-heartbeat',{available:false,executionProfile:'takt-simple'});}
 const status=await viewer.status(id);await writeFile('.local/evidence/takt-publish-live.json',JSON.stringify(status,null,2),{mode:0o600});console.log(JSON.stringify({id,state:status.state,error:status.error,result:status.result}));assert.equal(status.state,'succeeded');
