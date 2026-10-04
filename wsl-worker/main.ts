@@ -2,10 +2,13 @@ import {pathToFileURL} from 'node:url';
 import {invoke} from './providers.ts';
 import {invokeAgentFixture} from './agent-runner.ts';
 import {LIMITS,provider,str,integer,type Run} from '../shared/contracts.ts';
+import {DEVELOPMENT_BUDGET_MS} from '../shared/development.ts';
 export type Runner=(p:Run['provider'],prompt:string,signal:AbortSignal,deadlineNs:bigint,run?:Run)=>Promise<string>;
 export function executionDeadline(claimStartedNs:bigint,run:Pick<Run,'issued_at'|'deadline'>):bigint{
  if(!Number.isSafeInteger(run.issued_at)||!Number.isSafeInteger(run.deadline))throw new Error('invalid_execution_budget');
- const budget=integer(run.deadline!-run.issued_at,1,LIMITS.timeoutMs);
+ const development=(run as Run).task_kind==='development';
+ if(development&&(run as Run).budget_ms!==DEVELOPMENT_BUDGET_MS)throw new Error('invalid_execution_budget');
+ const budget=integer(run.deadline!-run.issued_at,1,development?DEVELOPMENT_BUDGET_MS:LIMITS.timeoutMs);
  // The request started BEFORE the server issued its lease. This deliberately subtracts
  // the entire round trip and does not compare clocks on different machines.
  return claimStartedNs+BigInt(budget)*1000000n;

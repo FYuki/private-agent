@@ -32,4 +32,5 @@ jobs:
             sleep 1
           done
           npm run test:integration
+          node --import tsx scripts/development-integration.ts
           node --import tsx scripts/realtime-check.ts

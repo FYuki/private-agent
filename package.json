@@ -13,6 +13,8 @@
     "db:local": "wrangler d1 migrations apply DB --local",
     "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
     "worker": "tsx wsl-worker/main.ts",
+    "worker:development": "tsx development/runner.ts",
+    "mcp:development": "tsx development/mcp.ts",
     "test:integration": "tsx scripts/integration.ts",
     "build": "wrangler deploy --dry-run --outdir dist"
   },
@@ -25,6 +27,7 @@
     "wrangler": "4.145.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
     "ajv": "8.20.0",
     "openai": "7.27.0"
   }
