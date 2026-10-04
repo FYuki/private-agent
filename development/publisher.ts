@@ -1,7 +1,7 @@
 import { operation,type Ledger } from './operations.ts';
 
-export function verifyRepositoryMetadata(info:{id?:number;private?:boolean;permissions?:{push?:boolean}},visibility:'private'|'public'='private'){
- if(!['private','public'].includes(visibility)||info.id!==1400010158||info.private!==(visibility==='private')||info.permissions?.push!==true)throw Error('repository_identity_or_visibility_mismatch');
+export function verifyRepositoryMetadata(info:{id?:number;private?:boolean;permissions?:{push?:boolean}},visibility:'private'|'public'='private',expectedId=1400010158,requirePush=true){
+ if(!['private','public'].includes(visibility)||info.id!==expectedId||info.private!==(visibility==='private')||(requirePush&&info.permissions?.push!==true))throw Error('repository_identity_or_visibility_mismatch');
 }
 
 export interface GitHubPublisher {

@@ -1,7 +1,7 @@
 import { DevelopmentClient } from './client.ts';
 import { exact,object,str } from '../shared/contracts.ts';
 
-const taskProperties={repoId:{type:'string',enum:['private-agent']},goal:{type:'string'},baseRef:{type:'string',enum:['epic/development-runner']},acceptanceCriteria:{type:'array',items:{type:'string'}},orchestratorProfileId:{type:'string'},executionProfileId:{type:'string'},budgetMs:{type:'integer',minimum:60000,maximum:86400000}};
+const taskProperties={repoId:{type:'string',enum:['private-agent','local-GPT-live']},goal:{type:'string'},baseRef:{type:'string',enum:['epic/development-runner','epic/transport-playback']},acceptanceCriteria:{type:'array',items:{type:'string'}},orchestratorProfileId:{type:'string'},executionProfileId:{type:'string'},budgetMs:{type:'integer',minimum:60000,maximum:86400000}};
 export const developmentTools=[
  {name:'development_profiles',description:'利用可能な司令塔・実装profileと既定値を取得',inputSchema:{type:'object',properties:{},additionalProperties:false}},
  {name:'development_submit',description:'owner専用の単発開発taskを冪等受付。モデル出力は外部writeの承認ではない',inputSchema:{type:'object',properties:{...taskProperties,idempotencyKey:{type:'string'}},required:['repoId','goal','baseRef','acceptanceCriteria','idempotencyKey'],additionalProperties:false}},
