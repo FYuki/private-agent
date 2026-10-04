@@ -44,8 +44,9 @@ export async function executeTakt(config:TaktConfig,worktree:string,task:string,
   const sessions=[];for(const p of paths.filter(p=>p.endsWith('.jsonl')&&p.includes('/logs/')&&!p.includes('/shadow/'))){const stat=await lstat(p);if(stat.size>16*1024*1024)throw Error('artifact_limit');const events=(await readFile(p,'utf8')).split('\n').filter(x=>x.trim()).map(x=>JSON.parse(x));const first=events[0];if(first?.type==='workflow_start'&&first.task===task&&first.workflowName==='simple'&&first.startTime===meta.startTime)sessions.push(events);}
   if(sessions.length!==1)throw Error('ambiguous_takt_session');const events=sessions[0];
   const result=acceptedResult(meta,events,{task,workflow:'simple'});
-  await writeFile(join(root,'manifest.json'),JSON.stringify({...manifest,state:'completed',result},null,2));
-  return {manifestHash:hash(JSON.stringify(manifest)),...result};
+  const completed=JSON.stringify({...manifest,state:'completed',result},null,2);
+  await writeFile(join(root,'manifest.json'),completed);
+  return {manifestHash:hash(completed),...result};
  }catch(e){await writeFile(join(root,'manifest.json'),JSON.stringify({...manifest,state:'interrupted',restart:'human_new_task_required'},null,2));throw e;}finally{clearInterval(progress);}
 }
 
