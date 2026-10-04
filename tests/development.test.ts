@@ -14,6 +14,21 @@ class DB implements Database {
 }
 const input={repoId:'private-agent',goal:'Synthetic change',baseRef:'epic/development-runner',acceptanceCriteria:['tests pass'],orchestratorProfileId:'plan-codex-luna',executionProfileId:'edit-codex-luna'};
 const capacity={models:{'codex-luna':1,'pi-swe2':1},groups:{shared:1}};
+test('TAKT completes after 75 minutes and releases both model reservations only after completion',async()=>{
+ const {db,store,dev,advance}=setup();try{
+  const spec={...input,orchestratorProfileId:'programmatic',executionProfileId:'takt-simple',budgetMs:7200000};
+  const id=await dev.submit('a','long-success',spec);await dev.submit('b','waiting',spec);
+  for(const models of [{'codex-luna':0,'codex-sol':1},{'codex-luna':1,'codex-sol':0}])assert.equal(await store.claim('a','w','codex-luna','shared',{models:{'pi-swe2':0,...models},groups:{shared:2}},'development','takt-simple'),null);
+  const caps={models:{'pi-swe2':0,'codex-luna':1,'codex-sol':1},groups:{shared:2}};
+  const run=(await store.claim('a','w','codex-luna','shared',caps,'development','takt-simple'))!;
+  for(let i=0;i<300;i++){advance(15000);await store.heartbeat('a','w',run.id,run.token!);}
+  assert.equal((await dev.status('a',id)).state,'running');
+  assert.equal(await store.claim('b','w2','codex-luna','shared',caps,'development','takt-simple'),null);
+  await store.finish('a','w',run.id,run.token!,JSON.stringify({synthetic:true}),null);
+  assert.equal((await dev.status('a',id)).state,'succeeded');
+  assert.ok(await store.claim('b','w2','codex-luna','shared',caps,'development','takt-simple'));
+ }finally{db.db.close();}
+});
 function setup(){const db=new DB();let now=1000000;const store=new Store(db,()=>now);return {db,store,dev:new DevelopmentStore(store),advance:(ms:number)=>now+=ms};}
 test('TAKT atomically reserves Sol plus Luna and shared quota; crash never releases by TTL alone',async()=>{
  const {db,store,dev,advance}=setup();try{

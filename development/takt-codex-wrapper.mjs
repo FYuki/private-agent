@@ -2,6 +2,9 @@
 import { openSync, closeSync, unlinkSync, appendFileSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
+// 各providerのPID namespaceを閉じるまで次の呼出へ進まない。setsidした子孫も同じnamespaceに残る。
+export const providerSandboxArgs=command=>['--die-with-parent','--unshare-user','--unshare-pid','--new-session','--bind','/','/','--proc','/proc','--dev','/dev','--',...command];
+
 // TAKT SDKのcleanupはkill後のcloseを待たないため、この境界で重複起動を拒否する。
 // 異常終了で残ったlockは自動解除しない。新しいrunには新しいprivate directoryを使う。
 export function codexArgs(argv) {
@@ -37,12 +40,13 @@ export function codexArgs(argv) {
  return {args,model,effort};
 }
 
-export async function guardedRun({file,args,lock,activity,env,profile,callMs=1200000,idleMs=600000,signal,stdin=process.stdin,stdout=process.stdout}) {
+export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=120,callMs=1200000,idleMs=600000,signal,stdin=process.stdin,stdout=process.stdout,stderr}) {
+ if(!Number.isSafeInteger(maxCalls)||maxCalls<1||maxCalls>120)throw Error('invalid_provider_call_limit');
  let fd;
  try {fd=openSync(lock,'wx',0o600);}catch{throw Error('previous_provider_stop_unconfirmed');}
  closeSync(fd);
  let count=0;try{count=readFileSync(activity,'utf8').split('\n').filter(l=>l&&JSON.parse(l).event==='started').length;}catch(e){if(e.code!=='ENOENT')throw e;}
- if(count>=120)throw Error('provider_call_limit');
+ if(count>=maxCalls)throw Error('provider_call_limit');
  return new Promise((resolve,reject)=>{
   let failed=false,bytes=0,idle;
   const child=spawn(file,args,{env,shell:false,detached:true,stdio:['pipe','pipe','pipe']});
@@ -55,7 +59,7 @@ export async function guardedRun({file,args,lock,activity,env,profile,callMs=120
   signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();
   const sig=()=>stop();process.on('SIGINT',sig);process.on('SIGTERM',sig);
   child.stdin.on('error',()=>{});stdin.pipe(child.stdin);
-  for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{bytes+=b.length;touch();if(bytes>4*1024*1024)stop();else if(stream===child.stdout)stdout.write(b);});
+  for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{bytes+=b.length;touch();if(bytes>4*1024*1024)stop();else if(stream===child.stdout)stdout.write(b);else stderr?.write(b);});
   child.on('error',()=>{failed=true;});
   child.on('close',code=>{
    clearTimeout(hard);clearTimeout(idle);clearTimeout(escalation);stdin.unpipe(child.stdin);
@@ -72,6 +76,8 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
  try {
   if(process.env.OPENAI_API_KEY||process.env.CODEX_API_KEY)throw Error('api_key_denied');
   const {args,model,effort}=codexArgs(process.argv.slice(2));
-  await guardedRun({file:'/usr/bin/node',args:['/opt/codex/bin/codex.js',...args],lock:'/run-private/codex.lock',activity:'/run-private/activity.ndjson',profile:{model,effort},env:{PATH:'/usr/bin:/bin',HOME:'/home/runner',CODEX_HOME:'/home/runner/.codex',LANG:'C.UTF-8'}});
+  const {maxCalls}=JSON.parse(readFileSync('/run-private/provider-policy.json','utf8'));
+  if(!Number.isSafeInteger(maxCalls)||maxCalls<1||maxCalls>120)throw Error('invalid_provider_call_limit');
+  await guardedRun({file:'/usr/bin/bwrap',args:providerSandboxArgs(['/usr/bin/node','/opt/codex/bin/codex.js',...args]),lock:'/run-private/codex.lock',activity:'/run-private/activity.ndjson',profile:{model,effort},maxCalls,env:{PATH:'/usr/bin:/bin',HOME:'/home/runner',CODEX_HOME:'/home/runner/.codex',LANG:'C.UTF-8'}});
  }catch(e){process.stderr.write(String(e.message)+'\n');process.exitCode=1;}
 }
