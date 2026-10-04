@@ -9,7 +9,7 @@ const remaining=()=>Number(deadline-process.hrtime.bigint())/1000000;
 if(process.platform!=='linux'||!file||remaining()<=0)process.exit(124);
 const killGroup=()=>{try{process.kill(-process.pid,'SIGKILL');}catch{process.exit(124);}};
 process.on('SIGTERM',killGroup);
-process.on('SIGINT',killGroup);
+process.on('SIGINT',()=>{try{if(child?.pid)process.kill(child.pid,'SIGINT');}catch{}setTimeout(killGroup,2000);});
 // Broken pipes must not terminate the guard and leave its child unsupervised.
 process.stdout.on('error',killGroup);
 process.stderr.on('error',killGroup);

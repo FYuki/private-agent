@@ -1,0 +1,17 @@
+import {mkdtemp,readFile} from 'node:fs/promises';
+import {resolve,join} from 'node:path';
+import assert from 'node:assert/strict';
+import {processOutput} from '../development/process.ts';
+import {resourcePlan} from '../development/takt-contract.ts';
+const root=resolve(process.env.TAKT_RUNTIME||'runtime/takt'),inputs=resolve('examples/takt'),out=await mkdtemp('/tmp/private-agent-takt-');
+await processOutput(process.execPath,['development/takt-prepare.mjs',root,inputs,out],process.cwd(),'',new AbortController().signal,process.hrtime.bigint()+60000000000n,{PATH:'/usr/bin:/bin'});
+const x=JSON.parse(await readFile(join(out,'compiled.json'),'utf8')),plan=resourcePlan(x.runtime,x.steps);
+assert.deepEqual(plan.models,{'codex-sol':1,'codex-luna':1});assert.equal(plan.maxProviderProcesses,1);
+assert.equal(plan.resolved.find(p=>p.target==='plan')?.profile,'sol-xhigh');
+assert.equal(plan.resolved.find(p=>p.target==='write_tests')?.profile,'sol-medium');
+assert.equal(plan.resolved.find(p=>p.target==='internal_agents.selector')?.profile,'luna-xhigh');
+assert.equal(plan.resolved.find(p=>p.target==='remediation/fix')?.profile,'sol-medium');
+assert.notEqual(x.requested.config,x.effective.config);
+assert.ok((await readFile(join(inputs,'config.yaml'),'utf8')).includes('auto_pr: true'));
+assert.ok((await readFile(join(out,'config.yaml'),'utf8')).includes('auto_pr: false'));
+console.log(JSON.stringify({officialSchema:true,expandedSteps:x.steps.length,models:plan.models,originalPreserved:true,providerExecuted:false}));

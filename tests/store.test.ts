@@ -7,7 +7,7 @@ import {LIMITS,jobInput,capacity} from '../shared/contracts.ts';
 import {dispatch} from '../control-plane/dispatch.ts';
 class Sqlite implements Database{
  db=new DatabaseSync(':memory:');
- constructor(){for(const file of ['0001_initial.sql','0002_capacity.sql','0003_development.sql'])this.db.exec(readFileSync('control-plane/migrations/'+file,'utf8'));}
+ constructor(){for(const file of ['0001_initial.sql','0002_capacity.sql','0003_development.sql','0004_takt_resources.sql'])this.db.exec(readFileSync('control-plane/migrations/'+file,'utf8'));}
  prepare(sql:string):Statement{
   const s=this.db.prepare(sql);let args:any[]=[];
   return {bind(...v){args=v;return this;},async first<T>(){return (s.get(...args)??null) as T|null;},async all<T>(){return {results:s.all(...args) as T[]};},async run(){return s.run(...args);}};

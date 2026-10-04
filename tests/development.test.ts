@@ -8,14 +8,38 @@ import { DEVELOPMENT_BUDGET_MS, developmentInput } from '../shared/development.t
 import { executionDeadline } from '../wsl-worker/main.ts';
 class DB implements Database {
   db=new DatabaseSync(':memory:');
-  constructor(){ for(const name of ['0001_initial.sql','0002_capacity.sql','0003_development.sql'])this.db.exec(readFileSync('control-plane/migrations/'+name,'utf8')); }
+  constructor(){ for(const name of ['0001_initial.sql','0002_capacity.sql','0003_development.sql','0004_takt_resources.sql'])this.db.exec(readFileSync('control-plane/migrations/'+name,'utf8')); }
   prepare(sql:string):Statement { const statement=this.db.prepare(sql);let args:any[]=[];return {bind(...values){args=values;return this;},async first<T>(){return statement.get(...args) as T??null;},async all<T>(){return {results:statement.all(...args) as T[]};},async run(){return statement.run(...args);}}; }
   async batch(list:Statement[]){this.db.exec('BEGIN');try{for(const s of list)await s.run();this.db.exec('COMMIT');}catch(e){this.db.exec('ROLLBACK');throw e;}}
 }
-const input={repoId:'private-agent',goal:'Synthetic change',baseRef:'epic/development-runner',acceptanceCriteria:['tests pass']};
+const input={repoId:'private-agent',goal:'Synthetic change',baseRef:'epic/development-runner',acceptanceCriteria:['tests pass'],orchestratorProfileId:'plan-codex-luna',executionProfileId:'edit-codex-luna'};
 const capacity={models:{'codex-luna':1,'pi-swe2':1},groups:{shared:1}};
 function setup(){const db=new DB();let now=1000000;const store=new Store(db,()=>now);return {db,store,dev:new DevelopmentStore(store),advance:(ms:number)=>now+=ms};}
+test('TAKT atomically reserves Sol plus Luna and shared quota; crash never releases by TTL alone',async()=>{
+ const {db,store,dev,advance}=setup();try{
+  const spec={...input,orchestratorProfileId:'programmatic',executionProfileId:'takt-simple',budgetMs:7200000};
+  await dev.submit('a','takt',spec);await dev.submit('b','takt',spec);
+  assert.equal(await store.claim('a','w1','codex-luna','shared',capacity,'development','takt-simple'),null);
+  const caps={models:{...capacity.models,'codex-sol':1},groups:{shared:2}};
+  const run=await store.claim('a','w1','codex-luna','shared',caps,'development','takt-simple');assert.ok(run);
+  await dev.progress('a','w1',run.job_id,run.token!,'plan',1);
+  await assert.rejects(dev.progress('b','w1',run.job_id,run.token!,'plan',1),/lease_lost/);
+  await assert.rejects(dev.progress('a','w1',run.job_id,run.token!,'../../evil',1),/invalid_progress/);
+  assert.equal(run.budget_ms,7200000);assert.equal(executionDeadline(0n,run),7200000000000n);
+  assert.equal(await store.claim('b','w2','codex-luna','shared',caps,'development','takt-simple'),null);
+  for(let i=0;i<300;i++){advance(15000);await store.heartbeat('a','w1',run.id,run.token!);}
+  assert.equal((await dev.status('a',run.job_id)).state,'running');
+  advance(2704000);await store.reap('a');
+  assert.equal(await store.claim('b','w2','codex-luna','shared',caps,'development','takt-simple'),null);
+  assert.equal((await dev.status('a',run.job_id)).state,'failed');
+  await assert.rejects(store.finish('a','other',run.id,run.token!,null,'cancelled'),/lease_lost/);
+  await store.finish('a','w1',run.id,run.token!,null,'cancelled');
+  assert.ok(await store.claim('b','w2','codex-luna','shared',caps,'development','takt-simple'));
+  assert.equal((await dev.status('a',run.job_id)).error,'lease_expired');
+ }finally{db.db.close();}
+});
 test('development submit normalizes defaults, deduplicates and isolates owners',async()=>{
+ const defaults=developmentInput({...input,orchestratorProfileId:undefined,executionProfileId:undefined});assert.equal(defaults.orchestratorProfileId,'programmatic');assert.equal(defaults.executionProfileId,'takt-simple');assert.equal(defaults.budgetMs,14400000);
  const {db,dev}=setup();try{
   const id=await dev.submit('a','same',input);assert.equal(await dev.submit('a','same',input),id);
   await assert.rejects(dev.submit('a','same',{...input,goal:'different'}),/idempotency_conflict/);
