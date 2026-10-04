@@ -43,17 +43,21 @@ export class Store {
     await this.q(`UPDATE runs SET state=CASE WHEN attempt>=? OR EXISTS(SELECT 1 FROM jobs WHERE id=runs.job_id AND task_kind='development') THEN 'failed' ELSE 'queued' END,error='lease_expired',lease_until=NULL
       WHERE owner=? AND state='running' AND lease_until<=? AND deadline+3000<=?`,LIMITS.maxAttempts,owner,this.now(),this.now()).run();
   }
-  async claim(owner:string,worker:string,provider?:Provider,group=owner,limits:Capacity={models:{'codex-luna':1,'pi-swe2':1},groups:{[group]:1}},taskKind:'answer'|'development'='answer'){
+  async claim(owner:string,worker:string,provider?:Provider,group=owner,limits:Capacity={models:{'codex-luna':1,'pi-swe2':1},groups:{[group]:1}},taskKind:'answer'|'development'='answer',executionProfile='edit-codex-luna'){
     if(limits.groups[group]===undefined)throw new Fault(503,'worker_group_not_configured');
     await this.reap(owner); const now=this.now(),token=crypto.randomUUID();
     // One atomic conditional UPDATE prevents concurrent claim races across processes.
     const r=await this.q(`UPDATE runs SET state='running',attempt=attempt+1,token=?,worker=?,auth_group=?,lease_until=?,deadline=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id),hold_until=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id)+3000,started_at=?,error=NULL
       WHERE id=(SELECT r.id FROM runs r JOIN jobs j ON j.id=r.job_id WHERE r.owner=? AND state='queued' AND due_at<=? AND attempt<? AND j.task_kind=? AND ((? IS NULL AND j.provider!='agent-fixture') OR j.provider=?)
-        AND (SELECT COUNT(*) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id WHERE occupied.hold_until>? AND oj.provider=j.provider)<CASE j.provider WHEN 'codex-luna' THEN ? WHEN 'pi-swe2' THEN ? WHEN 'agent-fixture' THEN ? ELSE 0 END
+        AND (j.task_kind!='development' OR json_extract(j.spec,'$.executionProfileId')=?)
+        AND NOT EXISTS(SELECT 1 FROM json_each(COALESCE(j.resources_json,json_object(j.provider,1))) needed
+          WHERE COALESCE((SELECT SUM(used.value) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id,
+            json_each(COALESCE(oj.resources_json,json_object(oj.provider,1))) used
+            WHERE (occupied.hold_until>? OR (oj.resources_json IS NOT NULL AND occupied.hold_until>0)) AND used.key=needed.key),0)+needed.value>COALESCE(json_extract(?, '$.'||needed.key),0))
         ORDER BY due_at,r.id LIMIT 1)
-      AND NOT EXISTS(SELECT 1 FROM runs WHERE worker=? AND hold_until>?)
-      AND (SELECT COUNT(*) FROM runs WHERE auth_group=? AND hold_until>?)<?
-      AND (SELECT COUNT(*) FROM attempts WHERE owner=? AND started_at>=?)<? RETURNING *`,token,worker,group,now+LIMITS.leaseMs,now,now,now,owner,now,LIMITS.maxAttempts,taskKind,provider??null,provider??null,now,limits.models['codex-luna'],limits.models['pi-swe2'],limits.models['agent-fixture']??0,worker,now,group,now,limits.groups[group],owner,Math.floor(now/86400000)*86400000,LIMITS.dailyAttempts).first<Run>();
+      AND NOT EXISTS(SELECT 1 FROM runs r JOIN jobs j ON j.id=r.job_id WHERE worker=? AND (hold_until>? OR (j.resources_json IS NOT NULL AND hold_until>0)))
+      AND (SELECT COUNT(*) FROM runs r JOIN jobs j ON j.id=r.job_id WHERE auth_group=? AND (hold_until>? OR (j.resources_json IS NOT NULL AND hold_until>0)))<?
+      AND (SELECT COUNT(*) FROM attempts WHERE owner=? AND started_at>=?)<? RETURNING *`,token,worker,group,now+LIMITS.leaseMs,now,now,now,owner,now,LIMITS.maxAttempts,taskKind,provider??null,provider??null,executionProfile,now,JSON.stringify(limits.models),worker,now,group,now,limits.groups[group],owner,Math.floor(now/86400000)*86400000,LIMITS.dailyAttempts).first<Run>();
     if(!r)return null;
     const j=await this.q('SELECT provider,prompt,spec,task_kind,budget_ms FROM jobs WHERE id=?',r.job_id).first<{provider:Run['provider'];prompt:string;spec:string;task_kind:'answer'|'development';budget_ms:number}>();
     return {...r,provider:j!.provider,prompt:j!.prompt,task_kind:j!.task_kind,budget_ms:j!.budget_ms,...(j!.task_kind==='development'?{development:JSON.parse(j!.spec)}:{}),...(j!.provider==='agent-fixture'?{agent:jobInput(JSON.parse(j!.spec)).agent}:{}),issued_at:now};
@@ -68,6 +72,11 @@ export class Store {
     const r=await this.q(`UPDATE runs SET state=?,result=?,error=?,lease_until=NULL,hold_until=0 WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND ((lease_until>? AND deadline>?) OR ? IS NOT NULL) RETURNING id`,error?'failed':'succeeded',result,error,id,owner,worker,token,now,now,error).first();
     if(r)return {ok:true,duplicate:false};
     const old=await this.q(`SELECT state,result,error FROM runs WHERE id=? AND owner=? AND worker=? AND token=?`,id,owner,worker,token).first<Run>();
+    if(old?.state==='failed'&&old.error==='lease_expired'&&error!==null){
+      // 同じlease tokenの停止ACKだけ受ける。失敗結果は維持し、新attemptを許可しない。
+      await this.q(`UPDATE runs SET hold_until=0 WHERE id=? AND owner=? AND worker=? AND token=? AND state='failed' AND error='lease_expired' AND EXISTS(SELECT 1 FROM jobs WHERE id=runs.job_id AND resources_json IS NOT NULL)`,id,owner,worker,token).run();
+      return {ok:true,duplicate:true,stopConfirmed:true};
+    }
     if(old?.state==='cancelled'){
       // The trusted runner reports only after CLI close; acknowledgement releases the reservation.
       await this.q(`UPDATE runs SET hold_until=0 WHERE id=? AND owner=? AND worker=? AND token=? AND state='cancelled'`,id,owner,worker,token).run();

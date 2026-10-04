@@ -11,8 +11,8 @@ export class DevelopmentStore {
     if (old) { if (old.spec !== spec) throw new Fault(409, 'idempotency_conflict'); return old.id; }
     const id = crypto.randomUUID(), now = s.now();
     await s.db.batch([
-      s.q(`INSERT OR IGNORE INTO jobs(id,owner,request_key,spec,name,provider,prompt,start_at,interval_seconds,max_runs,enabled,created_at,task_kind,budget_ms)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', DEVELOPMENT_BUDGET_MS, owner, LIMITS.maxJobs),
+      s.q(`INSERT OR IGNORE INTO jobs(id,owner,request_key,spec,name,provider,prompt,start_at,interval_seconds,max_runs,enabled,created_at,task_kind,budget_ms,resources_json)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', input.budgetMs ?? DEVELOPMENT_BUDGET_MS, input.executionProfileId === 'takt-simple' ? JSON.stringify({'codex-luna':1,'codex-sol':1}) : null, owner, LIMITS.maxJobs),
       s.q(`INSERT OR IGNORE INTO development_tasks SELECT id,owner,?,spec,created_at FROM jobs WHERE owner=? AND request_key=? AND task_kind='development'`, requestKey, owner, 'dev:'+requestKey),
       s.q(`INSERT OR IGNORE INTO runs(id,job_id,owner,slot,due_at,state) SELECT id||':0',id,owner,0,created_at,'queued' FROM development_tasks WHERE owner=? AND request_key=?`, owner, requestKey),
     ]);
@@ -23,16 +23,22 @@ export class DevelopmentStore {
   }
   async status(owner: string, id: string) {
     await this.store.reap(owner);
-    const task = await this.store.q(`SELECT t.id,t.spec,t.created_at,r.id AS run_id,r.state,r.attempt,r.result,r.error,r.deadline FROM development_tasks t JOIN runs r ON r.job_id=t.id WHERE t.id=? AND t.owner=?`, id, owner).first<any>();
+    const task = await this.store.q(`SELECT t.id,t.spec,t.created_at,r.id AS run_id,r.state,r.attempt,r.result,r.error,r.deadline,r.progress_json FROM development_tasks t JOIN runs r ON r.job_id=t.id WHERE t.id=? AND t.owner=?`, id, owner).first<any>();
     if (!task) throw new Fault(404, 'not_found');
     const workers = (await this.store.q('SELECT id,capabilities,reason,last_seen FROM development_workers WHERE owner=?', owner).all<any>()).results;
     const operations=(await this.store.q('SELECT name,state,fingerprint FROM development_operations WHERE task_id=?',id).all()).results;
-    return { ...task, operations, spec: JSON.parse(task.spec), queueReason: task.state === 'queued' ? workers.some(w => w.last_seen > this.store.now()-30000 && !w.reason) ? 'waiting_for_capacity' : 'runner_offline_or_unavailable' : null,
+    return { ...task, operations, spec: JSON.parse(task.spec), queueReason: task.state === 'queued' ? workers.some(w => w.last_seen > this.store.now()-30000 && !w.reason && JSON.parse(w.capabilities).includes(JSON.parse(task.spec).executionProfileId)) ? 'waiting_for_capacity' : 'runner_offline_or_unavailable' : null,
       workers: workers.map(w => ({ ...w, capabilities: JSON.parse(w.capabilities), online: w.last_seen > this.store.now()-30000 })) };
   }
-  async announce(owner: string, worker: string, available: boolean) {
-    const capabilities = available ? ['plan-codex-luna', 'edit-codex-luna'] : [];
+  async announce(owner: string, worker: string, available: boolean, executionProfile='edit-codex-luna') {
+    const capabilities = available ? executionProfile==='takt-simple'?['programmatic','takt-simple']:['plan-codex-luna', 'edit-codex-luna'] : [];
     await this.store.q(`INSERT INTO development_workers VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,capabilities=excluded.capabilities,reason=excluded.reason,last_seen=excluded.last_seen`, worker, owner, JSON.stringify(capabilities), available ? null : 'sandbox_or_cli_unavailable', this.store.now()).run();
+  }
+  async progress(owner:string,worker:string,id:string,token:string,stage:string,iteration:number){
+   if(!/^[a-z][a-z0-9_/-]{0,63}$/.test(stage)||!Number.isSafeInteger(iteration)||iteration<0||iteration>30)throw new Fault(400,'invalid_progress');
+   const now=this.store.now();
+   const row=await this.store.q(`UPDATE runs SET progress_json=? WHERE job_id=? AND owner=? AND worker=? AND token=? AND state='running' AND lease_until>? AND deadline>? RETURNING id`,JSON.stringify({stage,iteration,at:now}),id,owner,worker,token,now,now).first();
+   if(!row)throw new Fault(409,'lease_lost_or_cancelled');return {ok:true};
   }
   /** 外部write前予約。同一内容でもreservedは再実行許可ではなく、GitHub照合が必要。 */
   async operation(owner: string, worker: string, taskId: string, token: string, name: string, fingerprint: string, result?: string) {

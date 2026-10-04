@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check && npm test && npm run build
+      - name: Pinned TAKT schema and builtin contract (no provider calls)
+        run: npm ci --prefix runtime/takt --ignore-scripts && node --import tsx scripts/takt-config-check.ts
       - run: npm run dev:setup && npm run db:local
       - name: Local D1 and Workflows integration (no provider secrets)
         shell: bash
@@ -33,4 +35,5 @@ jobs:
           done
           npm run test:integration
           node --import tsx scripts/development-integration.ts
+          node --import tsx scripts/takt-api-check.ts
           node --import tsx scripts/realtime-check.ts

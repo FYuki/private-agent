@@ -5,9 +5,9 @@ import { client } from '../wsl-worker/main.ts';
 const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
 const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker);
 assert.equal((await fetch(base+'api/development/config')).status,401);
-const config=await viewer.profiles();assert.equal(config.defaults.orchestratorProfileId,'plan-codex-luna');
+const config=await viewer.profiles();assert.equal(config.defaults.orchestratorProfileId,'programmatic');
 const existing=await viewer.request('/api/state');for(const job of existing.jobs){if(job.name==='Development task'){const status=await viewer.status(job.id);if(status.spec.goal==='Synthetic API lifecycle; do not execute a model.')await viewer.cancel(job.id);}}
-const key=crypto.randomUUID(),spec={repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic API lifecycle; do not execute a model.',acceptanceCriteria:['cancel works']};
+const key=crypto.randomUUID(),spec={repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic API lifecycle; do not execute a model.',acceptanceCriteria:['cancel works'],orchestratorProfileId:'plan-codex-luna',executionProfileId:'edit-codex-luna'};
 const {id}=await viewer.submit(spec,key);assert.equal((await viewer.submit(spec,key)).id,id);
 await assert.rejects(viewer.submit({...spec,goal:'conflicting'},key),/409/);
 await assert.rejects(new DevelopmentClient(base,tokens.other).status(id),/403/);

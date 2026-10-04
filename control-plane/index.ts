@@ -43,7 +43,7 @@ export default {
      if(p.role!=='viewer')throw new Fault(403,'role_denied');
      return json({defaults:DEVELOPMENT_DEFAULTS,profiles:DEVELOPMENT_PROFILES,repoId:'private-agent',baseRef:'epic/development-runner'});
    }
-   const devTask=path.match(/^\/api\/development\/tasks\/([a-f0-9-]+)(?:\/(cancel|operation))?$/);
+   const devTask=path.match(/^\/api\/development\/tasks\/([a-f0-9-]+)(?:\/(cancel|operation|progress))?$/);
    if(req.method==='GET'&&devTask&&!devTask[2]){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await dev.status(p.owner,devTask[1]));}
    if(req.method==='GET'&&path==='/api/state'){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await store.list(p.owner));}
    if(req.method==='GET'&&path.startsWith('/api/ticks/')){
@@ -58,26 +58,29 @@ export default {
      return json({id:await dev.submit(p.owner,str(req.headers.get('idempotency-key'),100),b)},201);
    }
    if(path==='/api/development/runner-heartbeat'){
-     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['available']);if(typeof b.available!=='boolean')throw new Fault(400,'invalid_available');
-     await dev.announce(p.owner,p.id,b.available);return json({ok:true});
+      if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['available','executionProfile']);if(typeof b.available!=='boolean')throw new Fault(400,'invalid_available');
+      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
+      await dev.announce(p.owner,p.id,b.available,b.executionProfile as string|undefined);return json({ok:true});
    }
    if(devTask){
      const [,id,action]=devTask;
+     if(action==='progress'){if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['token','stage','iteration']);return json(await dev.progress(p.owner,p.id,id,str(b.token,64),str(b.stage,64),b.iteration as number));}
      if(action==='cancel'){if(p.role!=='viewer')throw new Fault(403,'role_denied');exact(b,[]);await dev.status(p.owner,id);return json(await store.cancel(p.owner,id+':0'));}
      if(action==='operation'){
        if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['token','name','fingerprint','result']);
-       if(!['prepare','plan','edit','test','commit','push','pull-request'].includes(b.name as string)||typeof b.fingerprint!=='string'||! /^[a-f0-9]{64}$/.test(b.fingerprint))throw new Fault(400,'invalid_operation');
+        if(!['prepare','plan','edit','takt','test','commit','push','pull-request'].includes(b.name as string)||typeof b.fingerprint!=='string'||! /^[a-f0-9]{64}$/.test(b.fingerprint))throw new Fault(400,'invalid_operation');
        return json(await dev.operation(p.owner,p.id,id,str(b.token,64),b.name as string,b.fingerprint,b.result===undefined?undefined:str(b.result,8192)));
      }
    }
    if(path==='/api/claim'){
-     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol','taskKind']);
+      if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol','taskKind','executionProfile']);
+      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
      const kind=b.taskKind??'answer';if(!['answer','development'].includes(kind as string))throw new Fault(400,'invalid_task_kind');
      if(b.protocol!==(kind==='development'?'development-v1':'absolute-deadline-v1'))throw new Fault(400,'worker_upgrade_required');
      if(kind==='development'&&!await store.q('SELECT id FROM development_workers WHERE id=? AND owner=? AND reason IS NULL AND last_seen>?',p.id,p.owner,Date.now()-30000).first())throw new Fault(409,'runner_not_ready');
      if(b.provider==='agent-fixture'&&env.MODE!=='local')throw new Fault(403,'fixture_local_only');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
-     return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits,kind as 'answer'|'development'));
+      return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits,kind as 'answer'|'development',b.executionProfile as string|undefined));
    }
    const runRoute=path.match(/^\/api\/runs\/([a-f0-9-]+:\d+)\/(heartbeat|complete|cancel)$/);
    if(runRoute){

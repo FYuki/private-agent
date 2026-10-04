@@ -16,4 +16,5 @@ $('task').onsubmit=async e=>{e.preventDefault();if(!config)return;const s=sessio
 function taskPath(){const id=$('task-id').value.trim();if(!/^[a-f0-9-]{36}$/.test(id))throw Error('タスクIDを確認してください');return '/api/development/tasks/'+id;}
 async function refresh(s=session){try{const r=await api(taskPath(),undefined,s);if(!current(s))return;$('result').textContent=JSON.stringify(r,null,2);$('status').textContent=r.queueReason||r.error||r.state;}catch(e){fail(e,s);}}
 $('refresh').onclick=()=>refresh();$('cancel').onclick=async()=>{const s=session;try{await api(taskPath()+'/cancel',{},s);if(current(s))await refresh(s);}catch(e){fail(e,s);}};
+$('executor').onchange=()=>{$('orchestrator').value=$('executor').value==='takt-simple'?'programmatic':'plan-codex-luna';};
 `;
