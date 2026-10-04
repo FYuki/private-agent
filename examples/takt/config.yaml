@@ -1,0 +1,11 @@
+language: ja
+branch_name_strategy: romaji
+auto_pr: true
+concurrency: 4
+observability:
+  enabled: true
+  usage_events_phase: true
+assistant:
+  formal_spec:
+    mode: true
+    comments: false

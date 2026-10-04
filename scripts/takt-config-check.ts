@@ -1,0 +1,35 @@
+import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import {resolve,join} from 'node:path';
+import assert from 'node:assert/strict';
+import {processOutput} from '../development/process.ts';
+import {resourcePlan} from '../development/takt-contract.ts';
+const root=resolve(process.env.TAKT_RUNTIME||'runtime/takt'),inputs=resolve('examples/takt'),out=await mkdtemp('/tmp/private-agent-takt-');
+await processOutput(process.execPath,['development/takt-prepare.mjs',root,inputs,out],process.cwd(),'',new AbortController().signal,process.hrtime.bigint()+60000000000n,{PATH:'/usr/bin:/bin'});
+const x=JSON.parse(await readFile(join(out,'compiled.json'),'utf8')),plan=resourcePlan(x.runtime,x.steps);
+assert.deepEqual(plan.models,{'codex-sol':1,'codex-luna':1});assert.equal(plan.maxProviderProcesses,1);
+assert.equal(plan.resolved.find(p=>p.target==='plan')?.profile,'sol-xhigh');
+assert.equal(plan.resolved.find(p=>p.target==='write_tests')?.profile,'sol-medium');
+assert.equal(plan.resolved.find(p=>p.target==='internal_agents.selector')?.profile,'luna-xhigh');
+assert.equal(plan.resolved.find(p=>p.target==='remediation/fix')?.profile,'sol-medium');
+assert.notEqual(x.requested.config,x.effective.config);
+assert.ok((await readFile(join(inputs,'config.yaml'),'utf8')).includes('auto_pr: true'));
+assert.ok((await readFile(join(out,'config.yaml'),'utf8')).includes('auto_pr: false'));
+console.log(JSON.stringify({officialSchema:true,expandedSteps:x.steps.length,models:plan.models,originalPreserved:true,providerExecuted:false}));
+const yaml=await import(pathToFileURL(join(root,'node_modules/yaml/dist/index.js')).href);
+async function overridden(key:string,profile:string){
+ const dir=await mkdtemp('/tmp/private-agent-routing-'),output=join(dir,'resolved');await mkdir(output);
+ await writeFile(join(dir,'config.yaml'),await readFile(join(inputs,'config.yaml')));
+ const runtime=yaml.parse(await readFile(join(inputs,'runtime.yaml'),'utf8'));runtime.provider.targets.steps[key]={profile};
+ await writeFile(join(dir,'runtime.yaml'),yaml.stringify(runtime));
+ await processOutput(process.execPath,['development/takt-prepare.mjs',root,dir,output],process.cwd(),'',new AbortController().signal,process.hrtime.bigint()+60000000000n,{PATH:'/usr/bin:/bin'});
+ return JSON.parse(await readFile(join(output,'compiled.json'),'utf8'));
+}
+const changed=await overridden('simple/plan','luna-xhigh'),changedPlan=resourcePlan(changed.runtime,changed.steps);
+assert.equal(changedPlan.resolved.find(p=>p.target==='plan')?.model,'gpt-6-luna');
+assert.equal(changed.steps.find((s:any)=>s.name==='plan').official.model,'gpt-6-luna');
+const denied=await overridden('simple/plan','opus5');assert.throws(()=>resourcePlan(denied.runtime,denied.steps),/provider_or_model_not_verified/);
+const nested=await overridden('review-remediation/fix','luna-xhigh');assert.equal(resourcePlan(nested.runtime,nested.steps).resolved.find(p=>p.target==='remediation/fix')?.profile,'luna-xhigh');
+const bare=await overridden('plan','luna-xhigh');assert.equal(resourcePlan(bare.runtime,bare.steps).resolved.find(p=>p.target==='plan')?.profile,'luna-xhigh');
+const mismatch=structuredClone(changed);mismatch.steps[0].official.model='gpt-6-sol';assert.throws(()=>resourcePlan(mismatch.runtime,mismatch.steps),/resolution_mismatch/);
+console.log(JSON.stringify({qualifiedOverrideMatchesOfficial:true,unsupportedQualifiedOverrideRejected:true,leafWorkflowRouting:true,bareFallback:true,manifestMismatchRejected:true,providerExecuted:false}));

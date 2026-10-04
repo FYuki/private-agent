@@ -1,5 +1,7 @@
 # private-agent
 
+GUI / dot MCP から単発の開発タスクを受け付ける経路は [開発runner](docs/development-runner.md) を参照。司令塔と実行モデルを別profileで選択し、専用worktree・隔離テスト・同一private repoへのdraft PRまで接続する。mainへのマージは行わない。
+
 汎用エージェント基盤は [agent-runtime](docs/agent-runtime.md) を参照。ローカル限定の合成ジョブは有限スケジュール、実poller、検証済みtool loop、D1結果保存まで接続済み。Core実サービスのfixture providerとは実HTTPで結合確認済み。実LLMとCore実モデルの定期接続は未実施。従来のCLIジョブはそのまま利用できる。
 
 定期タスクで **GPT-6 Luna / Devin SWE-2** を呼び、状態と結果を記録する最小MVPです。Cloudflare Workers + Workflows + D1が予定・台帳を持ち、Ubuntu WSLの同じworkerを設定違いで複製できます。初期受け入れは知識要約専用ではなく、有限の定期実行です。
@@ -96,3 +98,6 @@ model上限とgroup上限を同時に満たすjobだけを単一SQLの原子的c
 Cloudflare料金の厳密hard capは提供しません。実行回数・時間・出力量の制限はアプリ上の安全弁です。
 
 Rollback: cronを無効化→対象jobをdisable→workerを終了→以前のWorker versionへ戻します。実行中の予約枠は停止確認かdeadline後に解放します。D1は削除せず保全し、schema変更を戻す前にexport/互換性を確認します。ローカルではこのタスクのWrangler/workerプロセスだけを終了します。
+# TAKT execution adapter
+
+Development tasks default to programmatic orchestration with the pinned TAKT `simple` workflow. Setup, preserved user runtime profiles, capacity reservations, interruption behavior and rollback: [TAKT adapter](docs/takt-adapter.md).
