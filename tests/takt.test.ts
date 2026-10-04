@@ -31,6 +31,8 @@ test('provider call ceiling and TERM-resistant descendants cannot bypass closure
  const before=await readFile(output,'utf8');await new Promise(r=>setTimeout(r,100));assert.equal(await readFile(output,'utf8'),before);
  const limited=join(dir,'limited');await writeFile(limited,Array.from({length:120},()=>JSON.stringify({event:'started'})).join('\n'));
  await assert.rejects(guardedRun({file:process.execPath,args:['-e','process.exit(0)'],lock:join(dir,'limit-lock'),activity:limited,env:{}}),/call_limit/);
+ const smaller=join(dir,'smaller');await writeFile(smaller,Array.from({length:20},()=>JSON.stringify({event:'started'})).join('\n'));
+ await assert.rejects(guardedRun({file:process.execPath,args:['-e','process.exit(0)'],lock:join(dir,'small-lock'),activity:smaller,maxCalls:20,env:{}}),/call_limit/);
 });
 test('exit0/completed and question-only COMPLETE never imply approval',()=>{
  const meta={status:'completed',task:'x',workflow:'simple',endTime:'now',runSlug:'s',iterations:6};

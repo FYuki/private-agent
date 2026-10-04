@@ -1,5 +1,22 @@
 # TAKT adapter 受け入れ証跡
 
+## 追加の境界修正の証跡
+
+追加実試験run `7519615d-2f79-47a7-ab28-e4eb3b1950ce` は30分・最大20呼出の上限で開始し、約12分8秒・12呼出で`implement`からABORTした。planとwrite_testsは完了。`gpt-6-sol/xhigh`、`gpt-6-sol/medium`、内部`gpt-6-luna/xhigh`の実呼出を記録し、同時providerは最大1、終了後0だった。対象は合成greeting fixtureと単体テストの2ファイルのみ。
+
+中断理由はモデル用sandboxが`tsx`のUnix socket作成を拒否し、全体`npm test`が開始できなかったこと。TAKTは未確認の受入条件を承認せず停止した。続いて同じ2ファイルを既存の認証なし・ネットワーク隔離されたホストtest sandboxで検証し、`npm run check`と`npm test`は両方成功した。これは失敗したTAKTレビューを承認へ変更する根拠には用いていない。実行状態・保存ログ・承認結果は保全し、commit/push/PRは行わなかった。
+
+runnerの指示では、モデル側はsocket不要の限定テストを行い、全体テストは必須のホスト後段gateであることを明示した。権限の緩和はない。この指示修正後の実TAKT再実行は未実施であり、TAKT→publisher→draft PR→GUIの一連の実受入は引き続き未完了。呼出予算を増やして再試験していない。PR5は別task/headなので流用せず、追加の合成PRは作成していない。
+
+実試験の途中でユーザーがrepositoryをpublicへ変更した。旧実行はprivate固定の公開検査を保持していたが、今回の中断は公開段階より前でありvisibility検査によるものではない。
+
+- 公式0.68.0との比較で、`simple/plan`によるLuna指定、未対応Opus指定の起動前拒否、`review-remediation/fix`と呼出パス`remediation/fix`の区別、裸のstep名fallbackを確認した。provider呼出は行っていない。
+- 実bwrapの有限合成テストで、stdioを閉じてsetsidしたwriterが旧process-group境界の終了後も書き込みを続けることを再現した（1→21）。providerごとのPID namespace追加後は正常終了1→1、キャンセル12→12で停止した。lock解放後に書き込みは増えない。
+- 入れ子namespaceでもGit snapshot・project設定・合成認証ファイル・呼出上限のread-onlyを維持し、workspaceとCodex session directoryへの必要な書き込みは可能だった。実認証はこのテストで使っていない。
+- 67件のsecret不要テスト、型検証、Workers dry-run buildが通過した。Sol不足とLuna不足を個別に拒否し、仮想時計で75分の正常完了後に両方の容量予約を解放する回帰を追加した。実時間75分の試験ではない。
+- 390×844 Chromiumで結果リンクとログアウト消去を確認した。ブラウザーの結果レスポンスは明示的fixtureであり、TAKTからの実PR作成完了の証拠ではない。
+- `DEVELOPMENT_REPOSITORY_VISIBILITY=public`は固定リポジトリに対する管理者の明示設定として追加した。既定private、異なるID・push権限なし・visibility不一致の拒否を検証した。
+
 2026-10-04 UTC、Ubuntu WSL。実アカウントへdeploy・cron有効化・課金resource作成はしていない。
 
 ## 実際に確認した範囲

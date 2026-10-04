@@ -1,5 +1,15 @@
 # TAKT実行アダプター
 
+## 追加の境界検証
+
+モデル側sandboxはローカルsocketも含むnetworkを禁止するため、`tsx` CLIやHTTPを使う全テストはその内部では実行しない。変更範囲のsocket不要テストを実行し、全体の`npm run check` / `npm test`はTAKT完了後に既存のホストtest sandboxで必ず検証する。ホスト側は認証なし・独立network namespaceで実行し、前後のソースhash一致も要求する。未実施を成功と報告せず、コードや限定テストに問題があればTAKTの承認は通さない。
+
+step指定は公式TAKTと同じく `leaf-workflow/local-step`、裸のstep名の順で解決する。親からの呼出パスは表示用として別に保持する。公式resolverのprovider/model/effortとも照合し、不一致や未対応providerは起動前に拒否する。複数tagの衝突はstep overrideがあっても拒否する。
+
+各providerは独立したPID namespaceで実行する。`setsid`やstdioを閉じた子孫もnamespace終了時に停止し、その終了後にのみprovider lockを解放する。入れ子の隔離でもGit snapshot、認証ファイル、設定、呼出上限ファイルのread-onlyを保つ。`maxProviderCalls`は管理者の実行設定から1〜120へ縮小でき、HTTP/MCPのタスク本文から変更できない。
+
+公開先は固定リポジトリIDとpush権限を確認する。`DEVELOPMENT_REPOSITORY_VISIBILITY`は既定`private`。ユーザーがpublicへの公開を許可した環境だけ`public`を明示する。実行中のvisibility変更は公開段階で不一致エラーとなる。個人情報やraw実行ログを公開する許可ではない。
+
 PrivateAgentが受付・owner認証・冪等性・容量予約・worktree・テスト・commit・push・draft PRを担当し、TAKTが計画・テスト作成・実装・レビュー・修正を担当する。TAKTのqueue/watchは使わない。既存のCodex直接実行profileとの暗黙fallbackはない。
 
 ## 固定版と設定原本

@@ -6,7 +6,7 @@ export const hash = (v: string | Buffer) => createHash('sha256').update(v).diges
 type Assignment = { profile?: string; pool?: string; ladder?: unknown };
 type Profile = { provider: string; model?: string; options?: Record<string, unknown>; extends?: string };
 export type Runtime = { version: number; companion?: { enabled?: boolean }; provider?: { defaults?: Assignment; profiles: Record<string, Profile>; targets?: Record<string, Record<string, Assignment>>; auto_routing?: unknown; assignments?: unknown } };
-export type Step = { name: string; tags?: string[]; persona?: string; parallel?: unknown; steps?: Step[] };
+export type Step = { name: string; localName?: string; workflowName?:string; tags?: string[]; persona?: string; providerRoutingPersonaKey?:string; parallel?: unknown; steps?: Step[]; official?:{provider:string;model:string;effort:string} };
 
 /** 固定profileのみ解決する。未対応provider/競合を選び直さず拒否する。 */
 export function resolveProfile(runtime: Runtime, step?: Step, seat?: string) {
@@ -17,17 +17,21 @@ export function resolveProfile(runtime: Runtime, step?: Step, seat?: string) {
  if (seat) choice = target.internal_agents?.[seat] ?? choice;
  else if (step) {
   if (step.parallel || step.steps) throw Error('parallel_workflow_not_verified');
-  choice = target.personas?.[step.persona ?? ''] ?? choice;
+  choice = target.personas?.[step.providerRoutingPersonaKey ?? step.persona ?? ''] ?? choice;
+  const localName=step.localName??step.name;
+  const stepChoice=(step.workflowName?target.steps?.[step.workflowName+'/'+localName]:undefined)??target.steps?.[localName];
   const tags = (step.tags ?? []).map(t => target.tags?.[t]).filter((x): x is Assignment => !!x);
-  if (!target.steps?.[step.name] && new Set(tags.map(x => JSON.stringify(x))).size > 1) throw Error('tag_profile_conflict');
-  choice = target.steps?.[step.name] ?? tags[0] ?? choice;
+  if (new Set(tags.map(x => JSON.stringify(x))).size > 1) throw Error('tag_profile_conflict');
+  choice = stepChoice ?? tags[0] ?? choice;
  }
  if (!choice?.profile || choice.pool || choice.ladder) throw Error('fixed_profile_required');
  const profile = p.profiles[choice.profile];
  if (!profile || profile.extends) throw Error('unsupported_profile_inheritance');
  if (profile.provider !== 'codex' || !['gpt-6-sol', 'gpt-6-luna'].includes(profile.model ?? '')) throw Error('provider_or_model_not_verified');
  if (!['medium','xhigh'].includes(String(profile.options?.reasoning_effort))) throw Error('effort_not_verified');
- return { profile: choice.profile, provider: profile.provider, model: profile.model!, effort: String(profile.options!.reasoning_effort) };
+ const resolved={ profile: choice.profile, provider: profile.provider, model: profile.model!, effort: String(profile.options!.reasoning_effort) };
+ if(step?.official && ['provider','model','effort'].some(k=>resolved[k as keyof typeof resolved]!==step.official![k as keyof typeof step.official]))throw Error('official_runtime_resolution_mismatch');
+ return resolved;
 }
 
 export function resourcePlan(runtime: Runtime, steps: Step[]) {

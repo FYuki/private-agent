@@ -26,6 +26,10 @@ writeFileSync(join(output,'config.yaml'),stringify(effectiveConfig),{mode:0o600}
 writeFileSync(join(output,'runtime.yaml'),stringify(effectiveRuntime),{mode:0o600});
 process.env.TAKT_CONFIG_DIR=output;
 const {getBuiltinWorkflow,resolveWorkflowCallTarget}=await mod('takt/dist/infra/config/loaders/workflowLoader.js');
+const {compileRuntimeProviderEnvironment}=await mod('takt/dist/infra/config/runtime-provider/environment.js');
+const {resolveStepProviderModel}=await mod('takt/dist/core/workflow/provider-resolution.js');
+const {resolveProfileScopedProviderOptionsLayers,mergeProviderOptionLayers,mergeProviderOptions,resolveDirectStepProviderOptions}=await mod('takt/dist/infra/config/providerOptions.js');
+const environment=compileRuntimeProviderEnvironment(effectiveRuntime.provider);
 const workflow=getBuiltinWorkflow('simple',output);
 if(!workflow)throw Error('builtin_missing');
 const steps=[];
@@ -36,7 +40,15 @@ function visit(w,prefix='') {
    const child=resolveWorkflowCallTarget(w,step,output);
    if(!child)throw Error('child_workflow_missing');
    visit(child,prefix+step.name+'/');
-  } else steps.push({...step,name:prefix+step.name});
+  } else {
+   const providerRouting={...environment.providerRouting,workflowName:w.name};
+   const info=resolveStepProviderModel({...environment,providerRouting,step});
+   const layers=resolveProfileScopedProviderOptionsLayers(step,{providerRouting,personaProviders:environment.personaProviders},info.providerSource,true);
+   const profileLayers=info.providerSource==='runtime-v1'?[{source:'runtime-v1',options:environment.providerOptions},...layers]:layers;
+   const direct=mergeProviderOptions(resolveDirectStepProviderOptions(step),step.engineSynthesized===true&&info.providerSource==='step'?step.internalProviderOptions:undefined);
+   const options=mergeProviderOptions(mergeProviderOptionLayers(profileLayers),direct);
+   steps.push({...step,name:prefix+step.name,localName:step.name,workflowName:w.name,official:{provider:info.provider,model:info.model,effort:options?.codex?.reasoningEffort}});
+  }
  }
 }
 visit(workflow);

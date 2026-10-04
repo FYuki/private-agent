@@ -3,10 +3,13 @@ import {resolve,join} from 'node:path';
 import assert from 'node:assert/strict';
 import {taktSandboxArgs} from '../development/takt-adapter.ts';
 import {processOutput} from '../development/process.ts';
+// @ts-ignore Dependency-free CLI wrapper is shared with the process probe.
+import {providerSandboxArgs} from '../development/takt-codex-wrapper.mjs';
 const root=await mkdtemp('/tmp/private-agent-takt-sandbox-'),worktree=join(root,'workspace');
 for(const p of ['workspace','workspace/node_modules','git-snapshot','config','project','private'])await mkdir(join(root,p),{recursive:true});
 await writeFile(join(worktree,'.git'),'gitdir: /host-private-repository\n');await writeFile(join(root,'git-pointer'),'gitdir: /snapshot-git\n');await writeFile(join(root,'auth'),'SYNTHETIC AUTH SENTINEL');
 for(const dir of ['config','project'])for(const name of ['config.yaml','runtime.yaml'])await writeFile(join(root,dir,name),'');
+await writeFile(join(root,'private/provider-policy.json'),JSON.stringify({maxCalls:20}));
 const deadline=process.hrtime.bigint()+60000000000n,signal=new AbortController().signal,env={PATH:'/usr/bin:/bin'};
 await processOutput('/usr/bin/git',['init','--initial-branch=snapshot'],join(root,'git-snapshot'),'',signal,deadline,env);
 const config={codexPackage:process.env.CODEX_PACKAGE!,authFile:join(root,'auth'),dependencies:await realpath(resolve('node_modules')),taktRuntime:resolve(process.env.TAKT_RUNTIME!),taktInputs:join(root,'config'),taktRuns:root};
@@ -17,4 +20,10 @@ await assert.rejects(run(['/usr/bin/touch','/snapshot-git/unauthorized']),/proce
 await assert.rejects(run(['/usr/bin/touch','/workspace/.takt/config.yaml']),/process_failed/);
 const environment=await run(['/usr/bin/env']);assert.ok(!environment.includes('must-not-inherit'));
 assert.equal(await readFile(join(worktree,'.git'),'utf8'),'gitdir: /host-private-repository\n');
+const nested=(command:string[])=>run(['/usr/bin/bwrap',...providerSandboxArgs(command)]);
+assert.equal((await nested(['/usr/bin/git','rev-parse','--is-inside-work-tree'])).trim(),'true');
+for(const path of ['/snapshot-git/unauthorized','/workspace/.takt/config.yaml','/home/runner/.codex/auth.json','/run-private/provider-policy.json'])await assert.rejects(nested(['/usr/bin/touch',path]),/process_failed/);
+await nested(['/usr/bin/touch','/workspace/nested-write']);
+await nested(['/usr/bin/touch','/home/runner/.codex/nested-session']);
+console.log(JSON.stringify({nestedProviderNamespace:true,readonlyMountsPreserved:true,workspaceAndSessionsWritable:true,realCredentials:false}));
 console.log(JSON.stringify({realBwrap:true,gitFileMount:true,gitReadonly:true,noRemote:true,overrideMasked:true,environmentCleared:true,realCredentials:false}));

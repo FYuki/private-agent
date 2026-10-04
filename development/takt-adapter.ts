@@ -6,7 +6,7 @@ import {sandboxArgs,type SandboxConfig} from './sandbox.ts';
 import {processOutput} from './process.ts';
 import {hash,resourcePlan,acceptedResult,TAKT_PIN,type Runtime} from './takt-contract.ts';
 
-export type TaktConfig=SandboxConfig&{taktRuntime:string;taktInputs:string;taktRuns:string};
+export type TaktConfig=SandboxConfig&{taktRuntime:string;taktInputs:string;taktRuns:string;maxProviderCalls?:number};
 const env={PATH:'/usr/bin:/bin',LANG:'C.UTF-8'};
 /** 同一runの再実行はしない。中断時のTAKT保存ファイルは保持し、人による新規taskを待つ。 */
 export async function executeTakt(config:TaktConfig,worktree:string,task:string,baseSha:string,id:string,signal:AbortSignal,deadline:bigint,onProgress?:(stage:string,iteration:number)=>Promise<unknown>){
@@ -15,6 +15,9 @@ export async function executeTakt(config:TaktConfig,worktree:string,task:string,
  const root=join(config.taktRuns,id);await mkdir(root,{mode:0o700});
  const configDir=join(root,'config'),projectDir=join(root,'project'),privateDir=join(root,'private');
  for(const p of [configDir,projectDir,privateDir])await mkdir(p,{mode:0o700});
+ const maxCalls=config.maxProviderCalls??120;
+ if(!Number.isSafeInteger(maxCalls)||maxCalls<1||maxCalls>120)throw Error('invalid_provider_call_limit');
+ await writeFile(join(privateDir,'provider-policy.json'),JSON.stringify({maxCalls}),{mode:0o600});
  const seed=join(root,'git-snapshot');await mkdir(seed,{mode:0o700});
  const git=(args:string[],cwd:string)=>processOutput('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-c','user.name=PrivateAgent snapshot','-c','user.email=snapshot@localhost',...args],cwd,'',signal,deadline,env);
  const tracked=(await git(['ls-files','-z'],worktree)).split('\0').filter(Boolean);
@@ -26,7 +29,8 @@ export async function executeTakt(config:TaktConfig,worktree:string,task:string,
  for(const name of ['config.yaml','runtime.yaml']){try{await access(join(worktree,'.takt',name));throw Error('project_takt_override_denied');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}await writeFile(join(projectDir,name),'',{mode:0o600});}
  await processOutput(process.execPath,[fileURLToPath(new URL('./takt-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir],worktree,'',signal,deadline,env);
  const compiled=JSON.parse(await readFile(join(configDir,'compiled.json'),'utf8'));
- const resources=resourcePlan(compiled.runtime as Runtime,compiled.steps);
+ const resources={...resourcePlan(compiled.runtime as Runtime,compiled.steps),maxProviderCalls:maxCalls};
+ if(!compiled.steps.every((s:any)=>s.official?.provider&&s.official?.model&&s.official?.effort))throw Error('official_resolution_required');
  if(JSON.stringify(Object.keys(resources.models).sort())!==JSON.stringify(['codex-luna','codex-sol']))throw Error('resource_contract_changed');
  const manifest={...TAKT_PIN,id,baseSha,snapshotHead,taskHash:hash(task),wrapperHash:hash(await readFile(fileURLToPath(new URL('./takt-codex-wrapper.mjs',import.meta.url)))),requested:compiled.requested,effective:compiled.effective,workflowHash:compiled.workflowHash,promptBundleHash:compiled.promptBundleHash,resources,overrides:compiled.overrides,permissions:'isolated-chatgpt-no-publish-no-subagents',state:'running'};
  await writeFile(join(root,'manifest.json'),JSON.stringify(manifest,null,2),{mode:0o600});
@@ -58,6 +62,7 @@ export async function taktSandboxArgs(config:TaktConfig,worktree:string,root:str
  args.push('--ro-bind',join(seed,'.git'),'/snapshot-git');
  args.push('--ro-bind',config.taktRuntime,'/opt/takt-runtime','--ro-bind',fileURLToPath(new URL('./takt-codex-wrapper.mjs',import.meta.url)),'/opt/private-agent/codex-wrapper.mjs',
   '--bind',privateDir,'/run-private','--bind',configDir,'/takt-config','--bind',projectDir,'/workspace/.takt');
+ args.push('--ro-bind',join(privateDir,'provider-policy.json'),'/run-private/provider-policy.json');
  for(const name of ['config.yaml','runtime.yaml'])args.push('--ro-bind',join(configDir,name),'/takt-config/'+name,'--ro-bind',join(projectDir,name),'/workspace/.takt/'+name);
  return [...args,'--setenv','TAKT_CONFIG_DIR','/takt-config','--setenv','TAKT_CODEX_CLI_PATH','/opt/private-agent/codex-wrapper.mjs','--setenv','GIT_OPTIONAL_LOCKS','0','--setenv','NO_UPDATE_NOTIFIER','1','--',...command];
 }
