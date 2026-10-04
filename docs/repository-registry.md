@@ -30,3 +30,5 @@ secret不要テストでは未知repo、任意argv／root、他owner、path trav
 容量schemaの有限上限はSol5、Luna30、共有group35（Piとfixtureは従来どおり16）とする。実際の`LIMITS_JSON`は別途管理者が設定し、0による停止も維持する。profile数で枠を増やさず、全ownerで同じmodel keyを合算する。TAKTはSol/Lunaを各1と共有group1を予約し、内部providerは同時1のまま。API/GUIには現在のmodel枠と閲覧ownerの共有group上限を表示し、他groupの名前は返さない。既存DBの整数列・JSON予約にはmigration不要で、SQLiteの競合claim試験でLuna30、共有35、TAKT/Sol5を検証する。
 
 戻す場合は新規受付を止め、workerの終了を確認して前版へ戻す。成果物・task台帳・worktreeは保持する。local-only成功を公開済みに変更したり、不確実な操作予約を消したりしない。前版はlocal-GPT-live契約とartifact operationを扱えないため、そのrepoの新規taskを起票しない。
+
+Repository root and worktree storage must be canonical absolute paths that are disjoint: neither may contain the other. Sibling directories are supported, including names that share a prefix. Live acceptance scripts require an explicit `DEVELOPMENT_WORKTREES` pointing to an existing disjoint directory and validate it before submitting a task. Existing nested worktrees and evidence are preserved; administrators must choose a new location for future tasks.

@@ -1,5 +1,5 @@
 import {lstat,realpath,mkdir} from 'node:fs/promises';
-import {isAbsolute,resolve,relative} from 'node:path';
+import {isAbsolute,resolve,relative,sep} from 'node:path';
 import {object,exact,str} from '../shared/contracts.ts';
 import {repositoryPolicy,type RepositoryId} from '../shared/repositories.ts';
 
@@ -13,7 +13,11 @@ export function repositoryBindings(value:unknown):RepositoryBinding[] {
     const repoId=v.repoId as RepositoryId;if(ids.has(repoId))throw Error('duplicate_repository');ids.add(repoId);
     const root=str(v.root,4096),worktrees=str(v.worktrees,4096);
     for(const p of [root,worktrees])if(!isAbsolute(p)||resolve(p)!==p)throw Error('untrusted_admin_path');
-    if(root===worktrees||!relative(worktrees,root).startsWith('..'))throw Error('overlapping_repository_paths');
+    const contains=(parent:string,child:string)=>{
+      const path=relative(parent,child);
+      return path===''||(!isAbsolute(path)&&path!=='..'&&!path.startsWith('..'+sep));
+    };
+    if(contains(root,worktrees)||contains(worktrees,root))throw Error('overlapping_repository_paths');
     if(!Array.isArray(v.owners)||!v.owners.length||v.owners.length>16||v.owners.some(x=>typeof x!=='string'||!/^[a-zA-Z0-9_-]{1,64}$/.test(x)))throw Error('invalid_repository_owners');
     if(!['private','public'].includes(v.visibility as string)||typeof v.publishAuthorized!=='boolean')throw Error('invalid_repository_permission');
     return {repoId,root,worktrees,owners:[...new Set(v.owners as string[])],visibility:v.visibility as 'private'|'public',publishAuthorized:v.publishAuthorized};
