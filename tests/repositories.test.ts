@@ -61,7 +61,8 @@ test('fixed browser validation runs real Node syntax and standard tests without 
   await writeFile(join(root,'browser/playback-ack.mjs'),'export const value = 3;');
   await writeFile(join(root,'browser/tests/playback-ack.test.mjs'),"import test from 'node:test';import assert from 'node:assert/strict';import {value} from '../playback-ack.mjs';test('fixture',()=>assert.equal(value,3));");
   const options={cwd:root,env:{PATH:'/usr/bin:/bin'}};
-  for(const [file,...args] of validationCommands('local-GPT-live'))assert.equal(spawnSync(file,[...args],options).status,0);
+  // CIのsetup-nodeは/usr/binへ配置しない。固定policyを照合し、同じargvを検証用Nodeで実行する。
+  for(const [file,...args] of validationCommands('local-GPT-live')){assert.equal(file,'/usr/bin/node');assert.equal(spawnSync(process.execPath,[...args],options).status,0);}
   await writeFile(join(root,'browser/playback-ack.mjs'),'export const value = 4;');
-  const [file,...args]=validationCommands('local-GPT-live')[1];assert.notEqual(spawnSync(file,[...args],options).status,0);
+  const [file,...args]=validationCommands('local-GPT-live')[1];assert.equal(file,'/usr/bin/node');assert.notEqual(spawnSync(process.execPath,[...args],options).status,0);
 });
