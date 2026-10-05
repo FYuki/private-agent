@@ -2,7 +2,8 @@
 import {readFileSync,realpathSync,lstatSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {codexArgs,guardedRun} from './takt-codex-wrapper.mjs';
+import {codexArgs} from './takt-codex-wrapper.mjs';
+import {parallelRun} from './watch-provider-budget.mjs';
 
 /** cwdはSDKの--cdから取得する。wrapper自身のcwdをtask所有権と誤認しない。 */
 export function ownedClone(argv,policy,tasks){
@@ -31,7 +32,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const {TaskRunner}=await import('/opt/takt-runtime/node_modules/takt/dist/infra/task/runner.js');
   const {assertTaskStateWorktreeOwnership}=await import('/opt/takt-runtime/node_modules/takt/dist/features/tasks/taskStateWorktreeOwnership.js');
   const bound=ownedClone(process.argv.slice(2),policy,new TaskRunner(policy.root).listTaskStateItems());assertTaskStateWorktreeOwnership(policy.root,bound.task);
-  const {args,model,effort}=codexArgs(bound.mapped);
-  await guardedRun({file:'/usr/bin/bwrap',args:watchProviderArgs(bound.cwd,args,policy),lock:'/run-private/codex.lock',activity:'/run-private/activity.ndjson',maxCalls:policy.maxCalls,queueMs:1200000,profile:{model,effort,taskName:bound.task.name,runSlug:bound.task.runSlug},env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'}});
+  const {args,model,effort}=codexArgs(bound.mapped,true);
+  await parallelRun({file:'/usr/bin/bwrap',args:watchProviderArgs(bound.cwd,args,policy),directory:'/run-private',maxCalls:policy.maxCalls,profile:{model,effort,taskName:bound.task.name,runSlug:bound.task.runSlug},env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'}});
  }catch(e){process.stderr.write(String(e.message)+'\n');process.exitCode=1;}
 }

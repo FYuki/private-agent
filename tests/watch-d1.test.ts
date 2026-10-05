@@ -49,13 +49,13 @@ test('atomic claim waits for every successful dependency with completed artifact
   const claims=await Promise.all([claim('a','w1'),claim('a','w2')]);assert.equal(claims.filter(Boolean).length,1);assert.equal(claims.find(Boolean)!.job_id,id);
  }finally{db.db.close();}
 });
-test('watch announces its own profile and reserves both models plus one group slot',async()=>{
+test('watch announces its own profile and reserves one Sol plan job and one group slot regardless of internal models',async()=>{
  const {db,dev,claim}=setup();try{
   await dev.announce('a','w',true,'takt-watch');assert.deepEqual(JSON.parse(db.db.prepare('SELECT capabilities FROM development_workers').get()!.capabilities as string),['programmatic','takt-watch']);
   await dev.submit('a','one',input);await dev.submit('b','two',input);
-  for(const key of ['codex-sol','codex-luna'] as const)assert.equal(await claim('a','w',{...limits,models:{...limits.models,[key]:0}}),null);
+  for(const key of ['codex-sol'] as const)assert.equal(await claim('a','w',{...limits,models:{...limits.models,[key]:0}}),null);
   assert.equal(await claim('a','w',{...limits,groups:{shared:0}}),null);
-  const run=(await claim())!;assert.ok(run);assert.deepEqual(JSON.parse(db.db.prepare('SELECT resources_json FROM jobs WHERE id=?').get(run.job_id)!.resources_json as string),{'codex-luna':1,'codex-sol':1});
+  const run=(await claim('a','w',{...limits,models:{...limits.models,'codex-luna':0}}))!;assert.ok(run);assert.deepEqual(JSON.parse(db.db.prepare('SELECT resources_json FROM jobs WHERE id=?').get(run.job_id)!.resources_json as string),{'codex-sol':1});
   assert.equal(await claim('b','w2',{models:{'codex-luna':10,'codex-sol':10,'pi-swe2':0},groups:{shared:1}}),null);
  }finally{db.db.close();}
 });

@@ -30,7 +30,7 @@ const {LOOP_JUDGE_ROUTING_KEY,loopJudgeStepName,loopJudgeProviderFields}=await m
 const environment=compileRuntimeProviderEnvironment(p),candidates=[];
 const check=(info,target)=>{
  const effort=info.providerOptions?.codex?.reasoningEffort;
- if(info.provider!=='codex'||!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh'].includes(info.model+':'+effort))throw Error('provider_or_model_not_verified');
+ if(info.provider!=='codex'||!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh','gpt-6.1-sol:xhigh'].includes(info.model+':'+effort))throw Error('provider_or_model_not_verified');
  candidates.push({target,provider:info.provider,model:info.model,effort,executed:false});
 };
 function visit(w,prefix=''){
@@ -52,6 +52,9 @@ function visit(w,prefix=''){
  }
 }
 visit(w);
+// D1のtakt-watch契約はplan系列Solのjob一枠。異なる系列はclaimを流用しない。
+const plan=candidates.filter(c=>c.target==='plan'||c.target.endsWith('/plan'));
+if(!plan.length||plan.some(c=>!['gpt-6-sol','gpt-6.1-sol'].includes(c.model)))throw Error('plan_job_family_mismatch');
 // selector等の内部呼出しも固定profileを検証し、実行時は全呼出しを同じ物理ゲートへ通す。
 for(const seat of ['assistant','selector','review-completion-judge']){
  const a=p.targets?.internal_agents?.[seat]??p.defaults,v=p.profiles[a.profile];
@@ -62,4 +65,4 @@ if(workflow==='default'){
  const core=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='develop'),output),peer=resolveWorkflowCallTarget(core,core.steps.find(s=>s.name==='peer-review'),output);
  references={default:getWorkflowReference(w),core:getWorkflowReference(core),peer:getWorkflowReference(peer)};
 }
-writeFileSync(join(output,'watch-compiled.json'),JSON.stringify({workflow,references,candidates,physicalModels:{'codex-sol':1,'codex-luna':1},maxProviderProcesses:1,maxProviderCalls:120,conditionalReviewers:true}),{mode:0o600,flag:'wx'});
+writeFileSync(join(output,'watch-compiled.json'),JSON.stringify({workflow,references,candidates,jobResources:{'codex-sol':1},maxProviderProcesses:60,maxProviderCalls:60,providerCallMs:300000,conditionalReviewers:true}),{mode:0o600,flag:'wx'});

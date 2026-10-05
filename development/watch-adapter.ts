@@ -8,13 +8,22 @@ import {watchOrder,orderText,orderMarker,type WatchOrder} from './watch-contract
 import {verifyCommitRange} from './commit-range.ts';
 import {acceptedResult,hash} from './takt-contract.ts';
 import {acceptedDefaultResult} from './watch-acceptance.ts';
+// @ts-ignore dependency-free provider budget boundary
+import {verifyProviderSettlement} from './watch-provider-budget.mjs';
 import type {TaktConfig} from './takt-adapter.ts';
 
 /** 一つのD1 leaseに一つのwatch namespace。外部公開は行わず、停止・履歴検証後だけ成果物を返す。 */
+export function validateWatchStorage(clones:string){
+ // 公式0.68.0は絶対cloneパスをfile名へ符号化し、atomic保存時にPID/UUIDを追加する。
+ // clone名80byteとsuffix57byteを予約し、NAME_MAX=255をモデル開始前に守る。
+ if(Buffer.byteLength(clones,'utf8')+1+80+57>255)throw Error('watch_storage_path_too_long');
+}
+
 export async function executeWatch(config:TaktConfig,worktree:string,baseSha:string,owner:string,order:WatchOrder,signal:AbortSignal,deadline:bigint){
  order=watchOrder(order);
  for(const p of [config.taktRuntime,config.taktInputs,config.taktRuns,config.codexPackage,config.authFile,config.dependencies])if(resolve(p)!==p||await realpath(p)!==p)throw Error('untrusted_watch_path');
  const runRoot=join(config.taktRuns,order.id),root=join(runRoot,'repo'),clones=join(runRoot,'clones'),configDir=join(runRoot,'config'),privateDir=join(runRoot,'private');
+ validateWatchStorage(clones);
  await mkdir(runRoot,{mode:0o700});for(const p of [root,clones,configDir,privateDir,join(runRoot,'empty-git'),join(runRoot,'codex-state')])await mkdir(p,{mode:0o700});
  await verifyWatchRuntime(config.taktRuntime,root,configDir);
  const env={PATH:'/usr/bin:/bin',HOME:configDir,LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'};
@@ -30,8 +39,8 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
  const cancelNow=()=>{if(started&&!stopped&&!cancellation)cancellation=supervisor.cancel(owner,root).then(()=>{stopped=true;}).catch(()=>{throw Error('watch_stop_unconfirmed');});cancellation?.catch(()=>{});};
  try{
   const queued=await client.enqueue({task,workflow:order.workflow,worktree:true,autoPr:false,taskContext:{baseBranch:order.baseRef}});
-  const policy={root,clones,taskName:queued.taskName,marker:orderMarker(order),workflow:order.workflow,maxCalls:config.maxProviderCalls??120};
-  if(!Number.isSafeInteger(policy.maxCalls)||policy.maxCalls<1||policy.maxCalls>120)throw Error('invalid_provider_call_limit');
+  const policy={root,clones,taskName:queued.taskName,marker:orderMarker(order),workflow:order.workflow,maxCalls:config.maxProviderCalls??60};
+  if(!Number.isSafeInteger(policy.maxCalls)||policy.maxCalls<1||policy.maxCalls>60)throw Error('invalid_provider_call_limit');
   await writeFile(join(privateDir,'provider-policy.json'),JSON.stringify(policy),{mode:0o600,flag:'wx'});
   const here=fileURLToPath(new URL('.',import.meta.url));
   const args=['--unshare-user','--unshare-pid','--die-with-parent','--new-session','--unshare-ipc','--unshare-uts','--cap-drop','ALL','--clearenv',
@@ -39,6 +48,7 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
    '--bind',runRoot,runRoot,'--ro-bind',config.taktRuntime,'/opt/takt-runtime','--ro-bind',config.codexPackage,'/opt/codex','--ro-bind',config.dependencies,'/dependencies',
    '--ro-bind',config.authFile,'/codex-auth','--bind',join(runRoot,'codex-state'),'/codex-state','--ro-bind',join(runRoot,'empty-git'),'/empty-git','--bind',privateDir,'/run-private',
    '--ro-bind',join(privateDir,'provider-policy.json'),'/run-private/provider-policy.json',
+   '--ro-bind',join(here,'watch-provider-budget.mjs'),'/opt/private-agent/watch-provider-budget.mjs',
    '--ro-bind',join(here,'watch-codex-wrapper.mjs'),'/opt/private-agent/watch-codex-wrapper.mjs','--ro-bind',join(here,'takt-codex-wrapper.mjs'),'/opt/private-agent/takt-codex-wrapper.mjs',
    '--ro-bind','/etc/ssl','/etc/ssl','--ro-bind','/etc/resolv.conf','/etc/resolv.conf','--ro-bind','/etc/hosts','/etc/hosts',
    '--setenv','HOME',configDir,'--setenv','TAKT_CONFIG_DIR',configDir,'--setenv','TAKT_CODEX_CLI_PATH','/opt/private-agent/watch-codex-wrapper.mjs',
@@ -71,7 +81,7 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
   if(sessions.length!==1||meta.runSlug!==binding.runSlug)throw Error('ambiguous_takt_session');
   const result=order.workflow==='default'?acceptedDefaultResult(meta,sessions[0],{task:expectedTask,workflow:'default',references:compiled.references}):acceptedResult(meta,sessions[0],{task:expectedTask,workflow:'simple'});
   const activity=(await readFile(join(privateDir,'activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
-  if(activity.filter(x=>x.event==='started').length>policy.maxCalls||activity.some(x=>x.event==='stop_unconfirmed')||activity.at(-1)?.event!=='closed')throw Error('provider_stop_unconfirmed');
+  verifyProviderSettlement(activity,policy.maxCalls);
   await git(['fetch','--no-tags',clone,headSha],worktree);await git(['merge','--ff-only',headSha],worktree);
   if((await git(['rev-parse','HEAD'],worktree)).trim()!==headSha)throw Error('watch_import_mismatch');
   return {...result,headSha,commitRange,manifestHash:hash(JSON.stringify({baseSha,headSha,commitRange,compiled,activity,taskHash:hash(task)}))};

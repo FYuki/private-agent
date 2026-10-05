@@ -12,7 +12,7 @@ export const DEVELOPMENT_PROFILES = {
   ],
   executors: [
     { id: 'takt-simple', model: 'gpt-6-sol + gpt-6-luna', capacityKey: 'takt-simple', available: true, reason: null },
-    { id: 'takt-watch', model: 'gpt-6-sol + gpt-6-luna', capacityKey: 'takt-watch', available: true, reason: null },
+    { id: 'takt-watch', model: 'Sol plan job (gpt-6-sol / gpt-6.1-sol) + internal Sol/Luna', capacityKey: 'takt-watch', available: true, reason: null },
     { id: 'edit-codex-luna', model: 'gpt-6-luna', capacityKey: 'codex-luna', available: true, reason: null },
     { id: 'edit-claude', model: null, capacityKey: null, available: false, reason: 'claude_profile_not_verified' },
   ],

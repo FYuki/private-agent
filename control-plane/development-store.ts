@@ -16,7 +16,7 @@ export class DevelopmentStore {
     const id = crypto.randomUUID(), now = s.now();
     await s.db.batch([
       s.q(`INSERT OR IGNORE INTO jobs(id,owner,request_key,spec,name,provider,prompt,start_at,interval_seconds,max_runs,enabled,created_at,task_kind,budget_ms,resources_json)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', input.budgetMs ?? DEVELOPMENT_BUDGET_MS, ['takt-simple','takt-watch'].includes(input.executionProfileId) ? JSON.stringify({'codex-luna':1,'codex-sol':1}) : null, owner, LIMITS.maxJobs),
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', input.budgetMs ?? DEVELOPMENT_BUDGET_MS, input.executionProfileId==='takt-watch' ? JSON.stringify({'codex-sol':1}) : input.executionProfileId==='takt-simple' ? JSON.stringify({'codex-luna':1,'codex-sol':1}) : null, owner, LIMITS.maxJobs),
       s.q(`INSERT OR IGNORE INTO development_tasks SELECT id,owner,?,spec,created_at FROM jobs WHERE owner=? AND request_key=? AND task_kind='development'`, requestKey, owner, 'dev:'+requestKey),
       s.q(`INSERT OR IGNORE INTO runs(id,job_id,owner,slot,due_at,state) SELECT id||':0',id,owner,0,created_at,'queued' FROM development_tasks WHERE owner=? AND request_key=?`, owner, requestKey),
     ]);

@@ -1,5 +1,7 @@
 # adapter v3 取り込み（2026-10-05）
 
+現在のジョブ枠・並列CLI・6.1 Sol契約とdev受入は [takt-watch-dev-acceptance.md](takt-watch-dev-acceptance.md) を参照。以下の未対応・直列化の記述は前slice時点の記録。通常runnerのガードは現在も維持する。
+
 利用者の残作業再開指示に基づき、task-6の提供zipと成功証跡を照合した。原本とruntime.yaml、工程別モデル設定、他PoCの稼働状態は変更していない。既存PR22へ修正を保存し、mainマージ・本番配備・新規成果物公開は行わない。
 
 ## 取り込んだ修正

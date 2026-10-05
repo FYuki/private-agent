@@ -7,7 +7,7 @@ export const providerSandboxArgs=command=>['--die-with-parent','--unshare-user',
 
 // TAKT SDKのcleanupはkill後のcloseを待たないため、この境界で重複起動を拒否する。
 // 異常終了で残ったlockは自動解除しない。新しいrunには新しいprivate directoryを使う。
-export function codexArgs(argv) {
+export function codexArgs(argv, watch = false) {
  if (argv[0] !== 'exec') throw Error('exec_required');
  const args = ['exec','--ignore-user-config','--ignore-rules','--skip-git-repo-check'];
  let model, effort, role='plan', resume;
@@ -29,7 +29,7 @@ export function codexArgs(argv) {
   }
   throw Error('cli_argument_denied');
  }
- if(!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh'].includes(model+':'+effort))throw Error('profile_denied');
+ if(!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh',...(watch?['gpt-6.1-sol:xhigh']:[])].includes(model+':'+effort))throw Error('profile_denied');
  args.push('--model',model,'--json','--cd','/workspace');
  configs.push(`model_reasoning_effort="${effort}"`,'default_permissions="development"',
   `permissions.development.filesystem={"/"="read","/workspace"="${role==='edit'?'write':'read'}","/tmp"="write","/home/runner/.codex"="deny","/proc"="deny","/run-private"="deny","/workspace/.takt"="read","/takt-config"="deny"}`,
