@@ -72,7 +72,7 @@ export default {
    }
    if(path==='/api/development/runner-heartbeat'){
       if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['available','executionProfile']);if(typeof b.available!=='boolean')throw new Fault(400,'invalid_available');
-      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
+      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple','takt-watch'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
       await dev.announce(p.owner,p.id,b.available,b.executionProfile as string|undefined);return json({ok:true});
    }
    if(devTask){
@@ -87,10 +87,10 @@ export default {
    }
    if(path==='/api/claim'){
       if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['provider','protocol','taskKind','executionProfile']);
-      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
+      if(b.executionProfile!==undefined&&!['edit-codex-luna','takt-simple','takt-watch'].includes(b.executionProfile as string))throw new Fault(400,'unsupported_execution_profile');
      const kind=b.taskKind??'answer';if(!['answer','development'].includes(kind as string))throw new Fault(400,'invalid_task_kind');
      if(b.protocol!==(kind==='development'?'development-v1':'absolute-deadline-v1'))throw new Fault(400,'worker_upgrade_required');
-     if(kind==='development'&&!await store.q('SELECT id FROM development_workers WHERE id=? AND owner=? AND reason IS NULL AND last_seen>?',p.id,p.owner,Date.now()-30000).first())throw new Fault(409,'runner_not_ready');
+     if(kind==='development'&&!await store.q('SELECT id FROM development_workers WHERE id=? AND owner=? AND reason IS NULL AND last_seen>? AND EXISTS(SELECT 1 FROM json_each(capabilities) WHERE value=?)',p.id,p.owner,Date.now()-30000,b.executionProfile??'edit-codex-luna').first())throw new Fault(409,'runner_not_ready');
      if(b.provider==='agent-fixture'&&env.MODE!=='local')throw new Fault(403,'fixture_local_only');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
       return json(await store.claim(p.owner,p.id,b.provider===undefined?undefined:provider(b.provider),p.group||p.owner,limits,kind as 'answer'|'development',b.executionProfile as string|undefined));

@@ -56,6 +56,22 @@ export class WatchSupervisor {
   this.db.prepare("UPDATE watch_supervisors SET state='running',pid=?,identity=? WHERE root=? AND token=? AND state='starting'").run(pid,proof,root,token);
   return this.status(owner,root)!;
  }
+ /** cancelはdrainと区別する。自分が所有するPID namespaceのcloseだけを停止証明にする。 */
+ async cancel(owner:string,root:string,waitMs=10000){
+  if(!Number.isSafeInteger(waitMs)||waitMs<10||waitMs>30000)throw Error('invalid_stop_timeout');
+  const row=this.status(owner,root);if(!row)throw Error('watch_not_found');
+  if(row.observed==='exited')return row;
+  const child=this.children.get(root);
+  if(!row.contained||!child||child.pid!==row.pid||!row.pid||!row.identity||identity(row.pid)!==row.identity)throw Error('watch_stop_unconfirmed');
+  this.db.prepare("UPDATE watch_supervisors SET state='cancelling' WHERE root=? AND token=?").run(root,row.token);
+  process.kill(-row.pid,'SIGKILL');
+  const until=Date.now()+waitMs;
+  while(Date.now()<until){
+   if(!this.children.has(root)){const result=this.status(owner,root);if(result?.observed==='exited')return result;throw Error('watch_stop_unconfirmed');}
+   await new Promise(r=>setTimeout(r,20));
+  }
+  throw Error('watch_stop_unconfirmed');
+ }
  async stop(owner:string,root:string,waitMs=10000){
   if(!Number.isSafeInteger(waitMs)||waitMs<10||waitMs>30000)throw Error('invalid_stop_timeout');
   const row=this.status(owner,root);if(!row)throw Error('watch_not_found');

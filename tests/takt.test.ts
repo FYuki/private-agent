@@ -52,3 +52,12 @@ test('provider lock rejects overlap, waits for close and times out a silent proc
  await assert.rejects(run('setInterval(()=>{},1000)',30),/provider_failed/);await assert.rejects(access(lock));
  assert.match(await readFile(activity,'utf8'),/closed/);
 });
+
+test('queued physical provider calls serialize, count each call, and abort before spawn',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'takt-queue-')),lock=join(dir,'lock'),activity=join(dir,'events');
+ const run=(signal?:AbortSignal)=>guardedRun({file:process.execPath,args:['-e','setTimeout(()=>{},60)'],lock,activity,queueMs:3000,maxCalls:3,signal,env:{},stdin:Readable.from([]),stdout:new Writable({write(_c,_e,cb){cb();}})});
+ const controller=new AbortController();const first=run(),cancelled=run(controller.signal);controller.abort();await assert.rejects(cancelled,/cancelled/);
+ await Promise.all([first,run(),run()]);
+ const events=(await readFile(activity,'utf8')).trim().split('\n').map(x=>JSON.parse(x).event);assert.deepEqual(events,['started','closed','started','closed','started','closed']);
+ await assert.rejects(run(),/provider_call_limit/);
+});

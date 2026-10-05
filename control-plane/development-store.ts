@@ -9,10 +9,14 @@ export class DevelopmentStore {
     const input = developmentInput(value), spec = JSON.stringify(input), s = this.store;
     const old = await s.q('SELECT id,spec FROM development_tasks WHERE owner=? AND request_key=?', owner, requestKey).first<{ id: string; spec: string }>();
     if (old) { if (old.spec !== spec) throw new Fault(409, 'idempotency_conflict'); return old.id; }
+    // 既存の同owner・同repo taskだけを参照するため、未来参照や循環は作れない。
+    for(const dependency of input.watch?.dependencies??[]) {
+      if(!await s.q("SELECT id FROM development_tasks WHERE id=? AND owner=? AND json_extract(spec,'$.repoId')=?",dependency,owner,input.repoId).first())throw new Fault(400,'invalid_watch_dependency');
+    }
     const id = crypto.randomUUID(), now = s.now();
     await s.db.batch([
       s.q(`INSERT OR IGNORE INTO jobs(id,owner,request_key,spec,name,provider,prompt,start_at,interval_seconds,max_runs,enabled,created_at,task_kind,budget_ms,resources_json)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', input.budgetMs ?? DEVELOPMENT_BUDGET_MS, input.executionProfileId === 'takt-simple' ? JSON.stringify({'codex-luna':1,'codex-sol':1}) : null, owner, LIMITS.maxJobs),
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM jobs WHERE owner=?)<?`, id, owner, 'dev:'+requestKey, spec, 'Development task', 'codex-luna', input.goal, now, 60, 1, 0, now, 'development', input.budgetMs ?? DEVELOPMENT_BUDGET_MS, ['takt-simple','takt-watch'].includes(input.executionProfileId) ? JSON.stringify({'codex-luna':1,'codex-sol':1}) : null, owner, LIMITS.maxJobs),
       s.q(`INSERT OR IGNORE INTO development_tasks SELECT id,owner,?,spec,created_at FROM jobs WHERE owner=? AND request_key=? AND task_kind='development'`, requestKey, owner, 'dev:'+requestKey),
       s.q(`INSERT OR IGNORE INTO runs(id,job_id,owner,slot,due_at,state) SELECT id||':0',id,owner,0,created_at,'queued' FROM development_tasks WHERE owner=? AND request_key=?`, owner, requestKey),
     ]);
@@ -31,7 +35,7 @@ export class DevelopmentStore {
       workers: workers.map(w => ({ ...w, capabilities: JSON.parse(w.capabilities), online: w.last_seen > this.store.now()-30000 })) };
   }
   async announce(owner: string, worker: string, available: boolean, executionProfile='edit-codex-luna') {
-    const capabilities = available ? executionProfile==='takt-simple'?['programmatic','takt-simple']:['plan-codex-luna', 'edit-codex-luna'] : [];
+    const capabilities = available ? ['takt-simple','takt-watch'].includes(executionProfile)?['programmatic',executionProfile]:['plan-codex-luna', 'edit-codex-luna'] : [];
     await this.store.q(`INSERT INTO development_workers VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,capabilities=excluded.capabilities,reason=excluded.reason,last_seen=excluded.last_seen`, worker, owner, JSON.stringify(capabilities), available ? null : 'sandbox_or_cli_unavailable', this.store.now()).run();
   }
   async progress(owner:string,worker:string,id:string,token:string,stage:string,iteration:number){

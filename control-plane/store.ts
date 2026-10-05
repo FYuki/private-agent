@@ -50,6 +50,11 @@ export class Store {
     const r=await this.q(`UPDATE runs SET state='running',attempt=attempt+1,token=?,worker=?,auth_group=?,lease_until=?,deadline=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id),hold_until=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id)+3000,started_at=?,error=NULL
       WHERE id=(SELECT r.id FROM runs r JOIN jobs j ON j.id=r.job_id WHERE r.owner=? AND state='queued' AND due_at<=? AND attempt<? AND j.task_kind=? AND ((? IS NULL AND j.provider!='agent-fixture') OR j.provider=?)
         AND (j.task_kind!='development' OR json_extract(j.spec,'$.executionProfileId')=?)
+        AND NOT EXISTS(SELECT 1 FROM json_each(j.spec,'$.watch.dependencies') dependency
+          WHERE NOT EXISTS(SELECT 1 FROM development_tasks dt JOIN runs dr ON dr.job_id=dt.id
+            JOIN development_operations artifact ON artifact.task_id=dt.id AND artifact.name='artifact'
+            WHERE dt.id=dependency.value AND dt.owner=r.owner AND json_extract(dt.spec,'$.repoId')=json_extract(j.spec,'$.repoId')
+              AND dr.state='succeeded' AND dr.hold_until=0 AND artifact.state='completed' AND artifact.result IS NOT NULL))
         AND NOT EXISTS(SELECT 1 FROM json_each(COALESCE(j.resources_json,json_object(j.provider,1))) needed
           WHERE COALESCE((SELECT SUM(used.value) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id,
             json_each(COALESCE(oj.resources_json,json_object(oj.provider,1))) used

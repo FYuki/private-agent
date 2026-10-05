@@ -40,10 +40,18 @@ export function codexArgs(argv) {
  return {args,model,effort};
 }
 
-export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=120,callMs=1200000,idleMs=600000,signal,stdin=process.stdin,stdout=process.stdout,stderr}) {
+export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=120,callMs=1200000,idleMs=600000,signal,queueMs=0,stdin=process.stdin,stdout=process.stdout,stderr}) {
  if(!Number.isSafeInteger(maxCalls)||maxCalls<1||maxCalls>120)throw Error('invalid_provider_call_limit');
+ if(!Number.isSafeInteger(queueMs)||queueMs<0||queueMs>1200000)throw Error('invalid_provider_queue_limit');
+ const until=Date.now()+queueMs;
  let fd;
- try {fd=openSync(lock,'wx',0o600);}catch{throw Error('previous_provider_stop_unconfirmed');}
+ for(;;){
+  if(signal?.aborted)throw Error('provider_cancelled');
+  try{fd=openSync(lock,'wx',0o600);break;}catch(e){
+   if(e.code!=='EEXIST'||Date.now()>=until)throw Error('previous_provider_stop_unconfirmed');
+   await new Promise(resolve=>setTimeout(resolve,20));
+  }
+ }
  closeSync(fd);
  let count=0;try{count=readFileSync(activity,'utf8').split('\n').filter(l=>l&&JSON.parse(l).event==='started').length;}catch(e){if(e.code!=='ENOENT')throw e;}
  if(count>=maxCalls)throw Error('provider_call_limit');
