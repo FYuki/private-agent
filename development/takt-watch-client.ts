@@ -28,5 +28,7 @@ export class TaktWatchClient implements WatchQueue {
  }
  enqueue(input:Parameters<WatchQueue['enqueue']>[0]){return this.call('takt_enqueue_task',input);}
  async list():Promise<TaktTask[]>{return (await this.call('takt_list_tasks',{})).tasks;}
+ /** host内部専用。配送受付は消費・成功・公開承認の証拠ではない。 */
+ tell(runSlug:string,content:string){if(!/^[a-zA-Z0-9_-]{1,255}$/.test(runSlug)||!content.trim()||Buffer.byteLength(content)>8192)throw Error('invalid_run_instruction');return this.call('takt_tell_run',{runSlug,content});}
  run(runSlug:string){if(!/^[a-zA-Z0-9_-]{1,255}$/.test(runSlug))throw Error('invalid_run_slug');return this.call('takt_get_run',{runSlug});}
 }

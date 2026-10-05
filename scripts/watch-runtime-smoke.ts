@@ -7,7 +7,9 @@ import {executeWatch} from '../development/watch-adapter.ts';
 import {watchOrder} from '../development/watch-contract.ts';
 const sandbox=spawnSync('/usr/bin/bwrap',['--unshare-user','--unshare-pid','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--','/usr/bin/true'],{stdio:'ignore'}).status===0;
 if(!sandbox){console.log(JSON.stringify({watchRuntimeSmoke:'unavailable_pid_namespace',providerExecuted:false}));process.exit(0);}
-const dir=await mkdtemp(join(tmpdir(),'watch-runtime-smoke-')),repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=join(dir,'runs'),auth=join(dir,'fixture-auth.json');
+await mkdir(resolve('.local/w'),{recursive:true,mode:0o700});
+const dir=resolve('.local/w',crypto.randomUUID().slice(0,4));await mkdir(dir,{mode:0o700});
+const repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=join(dir,'r'),auth=join(dir,'fixture-auth.json');
 for(const p of [repo,pkg,runs,join(pkg,'bin')])await mkdir(p);
 await writeFile(auth,'{"fixture":true}',{mode:0o600});
 // 明確な失敗stub。公式watch→SDK→内側sandboxの到達だけを検証し、実モデル成功と混同しない。
@@ -18,4 +20,4 @@ const id=crypto.randomUUID(),base=git(['rev-parse','HEAD']),order=watchOrder({id
 await assert.rejects(executeWatch({taktRuntime:resolve('runtime/takt'),taktInputs:resolve('examples/takt'),taktRuns:runs,codexPackage:pkg,authFile:auth,dependencies:resolve('node_modules'),maxProviderCalls:2},repo,base,'fixture',order,new AbortController().signal,process.hrtime.bigint()+90000000000n),/watch_task_failed/);
 const events=(await readFile(join(runs,id,'private/activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
 assert.ok(events.some(x=>x.event==='started'));assert.equal(events.at(-1).event,'closed');assert.equal(git(['rev-parse','HEAD']),base);
-console.log(JSON.stringify({officialWatch:true,officialSdk:true,isolatedStubProvider:true,failureCollected:true,providerExecuted:false,remoteWrites:false}));
+console.log(JSON.stringify({officialWatch:true,officialSdk:true,isolatedStubProvider:true,failureCollected:true,providerExecuted:false,remoteWrites:false,durableEvidenceDirectory:dir}));

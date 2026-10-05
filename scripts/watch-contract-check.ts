@@ -24,6 +24,10 @@ try{
  const id='00000000-0000-4000-8000-000000000011';
  store.submit('fixture',{id,repoId:'local-GPT-live',issue:1,requirements:'Synthetic contract fixture. Never execute this task.',acceptance:['Queue identity can be read'],validation:['No model call'],baseRef:'epic/transport-playback'});
  const first=await store.dispatch('fixture',id,'local-GPT-live',client),again=await store.dispatch('fixture',id,'local-GPT-live',client);
+ assert.throws(()=>client.tell('../foreign','evidence'),/invalid_run_instruction/);
+ assert.throws(()=>client.tell('missing',' '),/invalid_run_instruction/);
+ assert.throws(()=>client.tell('missing','x'.repeat(8193)),/invalid_run_instruction/);
+ await assert.rejects(client.tell('missing','Host fixture only'),/takt_mcp_result_rejected/);
  assert.equal(first.task_name,again.task_name);assert.equal((await client.list()).length,1);assert.equal(first.state,'enqueued');
  const yaml=await import(pathToFileURL(join(runtime,'node_modules/yaml/dist/index.js')).href);
  const tasks=yaml.parse(await readFile(join(root,'.takt/tasks.yaml'),'utf8'));

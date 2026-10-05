@@ -1,5 +1,5 @@
 // 明示的なdev専用入口。通常runnerのwatchガードを変更しない。新規のローカルD1/合成Gitだけを使用する。
-import {mkdtemp,mkdir,writeFile,readFile,copyFile,realpath} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,copyFile,realpath} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHash,randomBytes} from 'node:crypto';
@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {DevelopmentClient} from '../development/client.ts';
 import {client} from '../wsl-worker/main.ts';
 import type {Run} from '../shared/contracts.ts';
+import {WatchSupervisor} from '../development/watch-supervisor.ts';
 import {executeWatch} from '../development/watch-adapter.ts';
 import {saveArtifact,finishArtifact} from '../development/artifacts.ts';
 import {fingerprint,operation,type Ledger} from '../development/operations.ts';
@@ -15,16 +16,20 @@ import {processOutput} from '../development/process.ts';
 if(!process.argv.includes('--live-authorized'))throw Error('explicit_live_authorization_required');
 const tag=process.env.WATCH_ACCEPTANCE_ID;if(!tag||!/^[a-z0-9-]{1,60}$/.test(tag))throw Error('explicit_unique_acceptance_id_required');
 await mkdir(resolve('.local/watch-acceptance'),{recursive:true,mode:0o700});
+const maxCli=Number(process.env.WATCH_MAX_CLI),budgetMs=Number(process.env.WATCH_BUDGET_MS);
+if(!Number.isSafeInteger(maxCli)||maxCli<1||maxCli>60||!Number.isSafeInteger(budgetMs)||budgetMs<60000||budgetMs>3600000)throw Error('explicit_bounded_live_budget_required');
 const root=resolve('.local/watch-acceptance',tag);await mkdir(root,{mode:0o700}); // 既存IDは再実行しない。
 const source=resolve('.local/adapter-v3/tests/takt-watch/fixtures/live-isolated-runtime.yaml');
 let repo=join(root,'repo');
-const input=join(root,'inputs'),runs=await mkdtemp('/tmp/paw-'),artifacts=join(root,'artifacts');
+await mkdir(resolve('.local/w'),{recursive:true,mode:0o700});
+const input=join(root,'inputs'),runs=resolve('.local/w',crypto.randomUUID().slice(0,4)),artifacts=join(root,'artifacts');
+await mkdir(runs,{mode:0o700}); // 短く永続するWSL native path。衝突時は上書きしない。
 await writeFile(join(root,'run-location.json'),JSON.stringify({runs}));
 for(const p of [input,repo,artifacts,join(repo,'shared'),join(repo,'tests'),join(repo,'node_modules')])await mkdir(p,{mode:0o700});
 await copyFile('examples/takt/config.yaml',join(input,'config.yaml'));await copyFile(source,join(input,'runtime.yaml'));
 const inputHash=createHash('sha256').update(await readFile(source)).digest('hex');
-const config={taktRuntime:resolve('runtime/takt'),taktInputs:input,taktRuns:runs,codexPackage:await realpath(process.env.CODEX_PACKAGE||''),authFile:await realpath(process.env.CODEX_AUTH_FILE||''),dependencies:resolve('node_modules'),maxProviderCalls:59};
-const stop=new AbortController(),deadline=process.hrtime.bigint()+3420000000000n;
+const config={taktRuntime:resolve('runtime/takt'),taktInputs:input,taktRuns:runs,codexPackage:await realpath(process.env.CODEX_PACKAGE||''),authFile:await realpath(process.env.CODEX_AUTH_FILE||''),dependencies:resolve('node_modules'),maxProviderCalls:maxCli};
+const stop=new AbortController(),deadline=process.hrtime.bigint()+BigInt(budgetMs)*1000000n;
 const command=(file:string,args:string[],cwd=repo)=>processOutput(file,args,cwd,'',stop.signal,deadline,{PATH:'/usr/bin:/bin',LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'});
 const git=(args:string[])=>command('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-c','user.name=Acceptance','-c','user.email=acceptance@localhost',...args]);
 await writeFile(join(repo,'package.json'),JSON.stringify({private:true,type:'module',scripts:{check:'node --check shared/greeting.js',test:'node --test tests/greeting.test.js'}}));
@@ -52,14 +57,14 @@ try{
  for(let i=0;i<100;i++){if(server.exitCode!==null)throw Error('dev_server_exit');try{await viewer.profiles();break;}catch{if(i===99)throw Error('dev_server_unavailable');await new Promise(r=>setTimeout(r,200));}}
  assert.equal((await fetch(base+'api/state')).status,401);
  const goal='Change only shared/greeting.js and tests/greeting.test.js. greeting(name) must trim whitespace around a non-empty string name and return Hello, <trimmed name>. For missing, empty or whitespace-only name return Hello, world. Preserve named greetings. Add focused node:test tests for these cases. No dependencies or external communication. Host runs npm run check and npm test. Local commits are owned by official TAKT; never push or create PRs.';
- const spec={repoId:'private-agent',baseRef:'epic/development-runner',goal,acceptanceCriteria:['Named greeting remains compatible.','Whitespace is trimmed.','Missing, empty and whitespace-only names use world.','Only the two allowed JavaScript files change and tests pass.'],executionProfileId:'takt-watch',budgetMs:3420000,watch:{issue:1,workflow:'default',validation:['npm run check','npm test']}};
+ const spec={repoId:'private-agent',baseRef:'epic/development-runner',goal,acceptanceCriteria:['Named greeting remains compatible.','Whitespace is trimmed.','Missing, empty and whitespace-only names use world.','Only the two allowed JavaScript files change and tests pass.'],executionProfileId:'takt-watch',budgetMs,watch:{issue:1,workflow:'default',validation:['npm run check','npm test']}};
  const {id}=await viewer.submit(spec,tag);assert.equal((await viewer.submit(spec,tag)).id,id);
  await api('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-watch'});
  run=await api('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}) as Run;assert.equal(run.job_id,id);
  await git(['switch','-c','feature/development-task-'+id]);
  const leased=run;heartbeat=setInterval(()=>{void api('/api/runs/'+leased.id+'/heartbeat',{token:leased.token}).catch(()=>stop.abort());},10000);
  const ledger:Ledger=(name,fingerprint,result)=>api('/api/development/tasks/'+id+'/operation',{token:leased.token,name,fingerprint,...(result===undefined?{}:{result})}) as ReturnType<Ledger>;
- console.log(JSON.stringify({phase:'claimed',id,jobResources:compiled.jobResources,inputHash,budgetMs:3420000,maxCli:59,callWallMs:300000,publication:false}));
+ console.log(JSON.stringify({phase:'claimed',id,jobResources:compiled.jobResources,inputHash,budgetMs,maxCli,callWallMs:300000,publication:false}));
  let executionError='';
  const executed=await operation(ledger,'takt',{baseSha,spec,inputHash},async()=>{try{return await executeWatch(config,repo,baseSha,'local',{id,repoId:'private-agent',issue:1,dependencies:[],requirements:goal,acceptance:spec.acceptanceCriteria,validation:spec.watch.validation,workflow:'default',baseRef:spec.baseRef},stop.signal,deadline);}catch(e){executionError=(e as Error).message;throw e;}}).catch(e=>{throw Error(executionError||e.message);});
  await operation(ledger,'test',{headSha:executed.headSha},async()=>{
@@ -78,6 +83,15 @@ try{
  if(run&&!['watch_stop_unconfirmed','provider_stop_unconfirmed'].includes(error))await api('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'operation_blocked'}).catch(()=>{});
  throw e;
 }finally{
- clearInterval(heartbeat);stop.abort();try{process.kill(-server.pid!,'SIGTERM');}catch{}
+ clearInterval(heartbeat);stop.abort();
+ // /tmp消失や親session終了より前に、必ず永続rootへ終了メタデータを記録する。
+ let provider:{starts?:number;closed?:number;unconfirmed?:number;missing?:boolean}={missing:true},watch:{state?:string;observed?:string}={};
+ if(run){
+  const owned=join(runs,run.job_id);
+  try{const events=(await readFile(join(owned,'private/activity.ndjson'),'utf8')).trim().split('\n').filter(Boolean).map(x=>JSON.parse(x));provider={starts:events.filter(x=>x.event==='started').length,closed:events.filter(x=>x.event==='closed').length,unconfirmed:events.filter(x=>x.event==='stop_unconfirmed').length};}catch{}
+  try{const supervisor=new WatchSupervisor(join(owned,'supervisor.db'));try{const row=supervisor.status('local',join(owned,'repo'));watch={state:row?.state,observed:row?.observed};}finally{supervisor.close();}}catch{}
+ }
+ await writeFile(join(root,'settlement.json'),JSON.stringify({task:run?.job_id,runs,provider,watch,inputUnchanged:createHash('sha256').update(await readFile(join(input,'runtime.yaml'))).digest('hex')===inputHash},null,2),{mode:0o600});
+ try{process.kill(-server.pid!,'SIGTERM');}catch{}
  await writeFile(join(root,'server.log'),output,{mode:0o600});
 }
