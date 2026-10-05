@@ -11,7 +11,7 @@ await worker('/api/development/runner-heartbeat',{available:true,executionProfil
 await assert.rejects(worker('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}),/409/);
 await worker('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-watch'});
 const run=await worker('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}) as any;
-if(run){assert.equal(run.job_id,first.id);await viewer.cancel(first.id);await assert.rejects(worker('/api/runs/'+run.id+'/heartbeat',{token:run.token}),/409/);await worker('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'synthetic_stop_confirmed'});}
+if(run){assert.equal(run.job_id,first.id);await viewer.cancel(first.id);await assert.rejects(worker('/api/runs/'+run.id+'/heartbeat',{token:run.token}),/409/);await worker('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'cancelled'});}
 else await viewer.cancel(first.id);
 assert.equal(await worker('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}),null);
 assert.equal((await viewer.status(dependent.id)).state,'queued');await viewer.cancel(dependent.id);
