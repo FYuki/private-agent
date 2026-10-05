@@ -1,4 +1,5 @@
 import { developmentInput } from '../shared/development.ts';
+import {publicationInput,uuid} from '../shared/publication.ts';
 import { str } from '../shared/contracts.ts';
 
 /** GUIと同じowner APIを使う。dot接続先は管理者設定で、公開bindや認証発行は行わない。 */
@@ -17,6 +18,8 @@ export class DevelopmentClient {
   submit(value:unknown,key:string){return this.request('/api/development/tasks',developmentInput(value),str(key,100));}
   status(id:string){this.id(id);return this.request('/api/development/tasks/'+id);}
   cancel(id:string){this.id(id);return this.request('/api/development/tasks/'+id+'/cancel',{});}
+  approvePublication(value:unknown,key:string){return this.request('/api/development/publications',publicationInput(value),str(key,100));}
+  publication(id:string){return this.request('/api/development/publications/'+uuid(id));}
   profiles(){return this.request('/api/development/config');}
   private id(id:string){if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('invalid_task_id');}
 }

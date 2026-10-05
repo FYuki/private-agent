@@ -29,7 +29,8 @@ export async function executeTakt(config:TaktConfig,worktree:string,task:string,
  for(const name of ['config.yaml','runtime.yaml']){try{await access(join(worktree,'.takt',name));throw Error('project_takt_override_denied');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}await writeFile(join(projectDir,name),'',{mode:0o600});}
  await processOutput(process.execPath,[fileURLToPath(new URL('./takt-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir],worktree,'',signal,deadline,env);
  const compiled=JSON.parse(await readFile(join(configDir,'compiled.json'),'utf8'));
- const resources={...resourcePlan(compiled.runtime as Runtime,compiled.steps),maxProviderCalls:maxCalls};
+ if(compiled.modelPlanVersion!==2||!Array.isArray(compiled.conditionalCalls))throw Error('official_conditional_plan_required');
+ const resources={...resourcePlan(compiled.runtime as Runtime,compiled.steps,compiled.conditionalCalls),maxProviderCalls:maxCalls};
  if(!compiled.steps.every((s:any)=>s.official?.provider&&s.official?.model&&s.official?.effort))throw Error('official_resolution_required');
  if(JSON.stringify(Object.keys(resources.models).sort())!==JSON.stringify(['codex-luna','codex-sol']))throw Error('resource_contract_changed');
  const manifest={...TAKT_PIN,id,baseSha,snapshotHead,taskHash:hash(task),wrapperHash:hash(await readFile(fileURLToPath(new URL('./takt-codex-wrapper.mjs',import.meta.url)))),requested:compiled.requested,effective:compiled.effective,workflowHash:compiled.workflowHash,promptBundleHash:compiled.promptBundleHash,resources,overrides:compiled.overrides,permissions:'isolated-chatgpt-no-publish-no-subagents',state:'running'};

@@ -7,6 +7,7 @@ import {developmentHtml,developmentScript} from './development-ui.ts';
 import {MeasuredDatabase} from './measurement.ts';
 import {dispatch} from './dispatch.ts';
 import {DevelopmentStore} from './development-store.ts';
+import {PublicationStore} from './publication-store.ts';
 import {DEVELOPMENT_DEFAULTS,DEVELOPMENT_PROFILES} from '../shared/development.ts';
 import {repositoryChoices} from '../shared/repositories.ts';
 type Tick={runId:string};
@@ -39,7 +40,9 @@ export default {
    if(req.method==='GET'&&(path==='/development'||path==='/development.js'))return new Response(path==='/development'?developmentHtml:developmentScript,{headers:{...headers,'content-type':path==='/development'?'text/html; charset=utf-8':'text/javascript; charset=utf-8'}});
    const p=await authenticate(req,env.MODE,env.AUTH_JSON),store=new Store(db);
    if(req.headers.get('origin')&&req.headers.get('origin')!==url.origin)throw new Fault(403,'origin_denied');
-   const dev=new DevelopmentStore(store);
+   const dev=new DevelopmentStore(store),publications=new PublicationStore(store);
+   const publication=path.match(/^\/api\/development\/publications\/([a-f0-9-]{36})(?:\/(operation))?$/);
+   if(req.method==='GET'&&publication&&!publication[2])return json(await publications.status(p.owner,publication[1]));
    if(req.method==='GET'&&path==='/api/development/config'){
      if(p.role!=='viewer')throw new Fault(403,'role_denied');
      let limits;try{limits=capacity(JSON.parse(env.LIMITS_JSON));}catch{throw new Fault(503,'capacity_not_configured');}
@@ -55,6 +58,14 @@ export default {
    }
    if(req.method!=='POST')throw new Fault(404,'not_found');
    const b=await body(req);
+   if(path==='/api/development/publications'){
+     if(p.role!=='viewer')throw new Fault(403,'role_denied');
+     return json({id:await publications.approve(p.owner,p.id,str(req.headers.get('idempotency-key'),100),b)},201);
+   }
+   if(publication&&publication[2]==='operation'){
+     if(p.role!=='worker')throw new Fault(403,'role_denied');exact(b,['name','result']);
+     return json(await publications.operation(p.owner,p.id,publication[1],str(b.name,32),b.result));
+   }
    if(path==='/api/development/tasks'){
      if(p.role!=='viewer')throw new Fault(403,'role_denied');
      return json({id:await dev.submit(p.owner,str(req.headers.get('idempotency-key'),100),b)},201);
