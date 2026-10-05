@@ -103,3 +103,5 @@ Rollback: cronを無効化→対象jobをdisable→workerを終了→以前のWo
 管理repoの追加と公開しない正常完了の設定は[repo registry](docs/repository-registry.md)を参照してください。
 
 Development tasks default to programmatic orchestration with the pinned TAKT `simple` workflow. Setup, preserved user runtime profiles, capacity reservations, interruption behavior and rollback: [TAKT adapter](docs/takt-adapter.md).
+
+TAKT watchへの接続は[初期管理slice](docs/takt-watch.md)に分離しています。公式MCPと空queueの起動監督を契約検証しており、既存workerの本番切替は未実施です。
