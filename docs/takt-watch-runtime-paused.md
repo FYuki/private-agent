@@ -1,4 +1,8 @@
-# watch runtime 開発停止点（2026-10-05）
+# watch runtime 開発停止点と再開状況（2026-10-05）
+
+再開指示によりadapter v3の公式run bindingを移植済み。下記P1のtask照合不一致は修正し、合成公式readerで検証した。現在の証拠と残事項は [取り込み記録](takt-watch-adapter-integration.md) を参照。通常runnerの実稼働入口は、全体成功試験と設定契約の確認まで閉じている。
+
+以下は停止時点の記録。
 
 利用者のフレームワーク選定を待つため、epic/takt-watch の次スライスを feature/takt-watch-runtime の draft PR に隔離して停止する。main/epicへこのスライスをマージせず、deploy・既存worker/service切替・本番watch有効化をしない。選定PoCとは独立した作業である。
 

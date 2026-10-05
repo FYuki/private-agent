@@ -1,0 +1,23 @@
+{
+  "source": "takt-watch-additions-v3.zip",
+  "archiveSha256": "25a41e5a8cf0ba2ecd7d165b6dbc3c55812c476b5439554beada7b25e4cdc5e1",
+  "manifestFilesVerified": 76,
+  "runSlug": "20261005-065749-implement-using-only-the-files-ihsq5g",
+  "sourceSuccess": true,
+  "sameRunReverification": true,
+  "reportsHashVerified": 8,
+  "independentAC": "Independent AC: 4/4 pass",
+  "generatedTests": 6,
+  "sourceContractTestsReplayed": 30,
+  "additionalModelCalls": 0,
+  "models": {
+    "gpt-6.1-sol": 3,
+    "gpt-6-sol": 22,
+    "gpt-6-luna": 2
+  },
+  "peakConcurrentCli": 2,
+  "sourcePoolReleased": true,
+  "sourceRemainingProcesses": 0,
+  "sourceRemainingSessions": 0,
+  "privateAgentLiveRun": false
+}

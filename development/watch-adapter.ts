@@ -1,6 +1,6 @@
 import {mkdir,readFile,writeFile,lstat,realpath,readdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
-import {fileURLToPath,pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {processOutput} from './process.ts';
 import {WatchSupervisor} from './watch-supervisor.ts';
 import {TaktWatchClient,verifyWatchRuntime} from './takt-watch-client.ts';
@@ -57,21 +57,19 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
    await new Promise(r=>setTimeout(r,250));
   }
   await supervisor.stop(owner,root,10000);stopped=true;
-  const {TaskRunner}=await import(pathToFileURL(join(config.taktRuntime,'node_modules/takt/dist/infra/task/runner.js')).href);
-  const {assertTaskStateWorktreeOwnership}=await import(pathToFileURL(join(config.taktRuntime,'node_modules/takt/dist/features/tasks/taskStateWorktreeOwnership.js')).href);
-  const states=new TaskRunner(root).listTaskStateItems();if(states.length!==1)throw Error('watch_task_ambiguous');const state=states[0];
-  if(state.name!==queued.taskName||state.status!=='completed'||state.summary!==policy.marker||state.workflow!==order.workflow||!state.worktreePath?.startsWith(clones+'/')||await realpath(state.worktreePath)!==state.worktreePath||!state.runSlug||!state.branch)throw Error('watch_completion_mismatch');
-  assertTaskStateWorktreeOwnership(root,state);
-  const clone=state.worktreePath,headSha=(await git(['rev-parse','HEAD'],clone)).trim();
-  if((await git(['rev-parse','refs/heads/'+state.branch])).trim()!==headSha||(await git(['status','--porcelain'],clone)).trim())throw Error('watch_head_mismatch');
+  const completed=await client.list();if(completed.length!==1||!completed[0].runSlug)throw Error('watch_completion_mismatch');
+  const binding=JSON.parse(await processOutput(process.execPath,[fileURLToPath(new URL('./watch-run-binding.mjs',import.meta.url)),config.taktRuntime,root,configDir,clones,queued.taskName,completed[0].runSlug,order.workflow],root,task,signal,deadline,env));
+  const expectedTask=binding.executionTask;
+  const clone=binding.clone,headSha=(await git(['rev-parse','HEAD'],clone)).trim();
+  if((await git(['rev-parse','refs/heads/'+binding.branch])).trim()!==headSha||(await git(['status','--porcelain'],clone)).trim())throw Error('watch_head_mismatch');
   const commitRange=await verifyCommitRange(a=>git(a,clone),order.repoId,baseSha,headSha);
   const files:string[]=[];
   async function scan(dir:string){for(const name of await readdir(dir)){const p=join(dir,name),s=await lstat(p);if(s.isSymbolicLink())throw Error('artifact_symlink');if(s.isDirectory())await scan(p);else if(name==='meta.json'||name.endsWith('.jsonl')){if(s.size>16*1024*1024||files.length>=256)throw Error('artifact_limit');files.push(p);}}}
-  await scan(join(clone,'.takt','runs',state.runSlug));
+  await scan(join(clone,'.takt','runs',binding.runSlug));
   const metas=files.filter(p=>p.endsWith('/meta.json'));if(metas.length!==1)throw Error('ambiguous_takt_result');const meta=JSON.parse(await readFile(metas[0],'utf8'));
-  const sessions=[];for(const p of files.filter(p=>p.endsWith('.jsonl')&&p.includes('/logs/')&&!p.includes('/shadow/'))){const events=(await readFile(p,'utf8')).split('\n').filter(Boolean).map(x=>JSON.parse(x));if(events[0]?.type==='workflow_start'&&events[0].task===task&&events[0].workflowName===order.workflow&&events[0].startTime===meta.startTime)sessions.push(events);}
-  if(sessions.length!==1||meta.runSlug!==state.runSlug)throw Error('ambiguous_takt_session');
-  const result=order.workflow==='default'?acceptedDefaultResult(meta,sessions[0],{task,workflow:'default',references:compiled.references}):acceptedResult(meta,sessions[0],{task,workflow:'simple'});
+  const sessions=[];for(const p of files.filter(p=>p.endsWith('.jsonl')&&p.includes('/logs/')&&!p.includes('/shadow/'))){const events=(await readFile(p,'utf8')).split('\n').filter(Boolean).map(x=>JSON.parse(x));if(events[0]?.type==='workflow_start'&&events[0].task===expectedTask&&events[0].workflowName===order.workflow&&events[0].startTime===meta.startTime)sessions.push(events);}
+  if(sessions.length!==1||meta.runSlug!==binding.runSlug)throw Error('ambiguous_takt_session');
+  const result=order.workflow==='default'?acceptedDefaultResult(meta,sessions[0],{task:expectedTask,workflow:'default',references:compiled.references}):acceptedResult(meta,sessions[0],{task:expectedTask,workflow:'simple'});
   const activity=(await readFile(join(privateDir,'activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
   if(activity.filter(x=>x.event==='started').length>policy.maxCalls||activity.some(x=>x.event==='stop_unconfirmed')||activity.at(-1)?.event!=='closed')throw Error('provider_stop_unconfirmed');
   await git(['fetch','--no-tags',clone,headSha],worktree);await git(['merge','--ff-only',headSha],worktree);
