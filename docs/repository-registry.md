@@ -13,9 +13,9 @@ worker起動前に管理者がrootとworktree保存先を作成する。symlink�
 
 TAKTには既存固定simple・model/effort・同時provider 1を使う。Git認証とcontrol-plane認証はmodelへ渡さず、検証は認証なし・外部networkなしのsandboxで固定argvを実行する。変更ファイルの数、量、実体パス、秘密らしい値を検証し、検証前後でsource hashを照合する。Python backend、LiveKit、GPU、実mic、Core履歴は今回のbrowser契約に含まれない。
 
-`publishAuthorized:false`では、検証済みローカルcommitと`worktrees/.artifacts/<artifactId>.json`を保存し、`outcome:local_only`で正常終了する。結果にはrepo、owner、task、base/head SHA、source hash、検証契約、固定argv、TAKT検証情報を含む。公開許可がある新規taskだけがdraft PRを作り、`outcome:published`とprUrlを返す。
+`publishAuthorized:false`では、検証済みローカルcommitと`worktrees/.artifacts/<artifactId>.json`を保存し、`outcome:local_only`で正常終了する。結果にはrepo、owner、task、base/head SHA、source hash、検証契約、固定argv、TAKT検証情報を含む。task実行中の公開では、公開許可がある新規taskだけがdraft PRを作り、`outcome:published`とprUrlを返す。
 
-既存local-only taskを再実行して公開へ昇格させることはできない。prepare台帳はmodeも含めて固定し、成果物は内容hashによるIDで排他的に保存する。後日の公開APIは未実装である。この操作は別の承認operationとして、owner／repo／artifactId／exact head／検証証跡と現在のGit状態を再照合しなければならない。モデルの承認文や単なる設定変更で代用してはいけない。
+既存local-only taskを再実行して公開へ昇格させることはできない。prepare台帳はmodeも含めて固定し、成果物は内容hashによるIDで排他的に保存する。後日の公開は[別承認の公開経路](artifact-publication.md)だけで行い、owner／repo／artifactId／exact head／検証証跡と現在のGit状態を再照合する。`approvedPublicationAllowed:true` が必要である。モデルの承認文や単なる設定変更で代用してはいけない。
 
 ## 初回候補の調査と検証範囲
 
@@ -25,7 +25,7 @@ secret不要テストでは未知repo、任意argv／root、他owner、path trav
 
 ## 配備とrollback
 
-この変更にDB migrationはない。control-planeとworkerを同じ版へ更新する。registry JSONは秘密値を含めず、worker token・Codex認証は既存の専用保管先で管理する。この変更自体はtoken発行、容量有効化、サービス起動、公開、実taskを行わない。
+repo登録・容量拡張自体にDB migrationはない。後日公開APIを使う場合は `0005_publications.sql` の追加適用が必要である。control-planeとworkerを同じ版へ更新する。registry JSONは秘密値を含めず、worker token・Codex認証は既存の専用保管先で管理する。この変更自体はtoken発行、容量有効化、サービス起動、公開、実taskを行わない。
 
 容量schemaの有限上限はSol5、Luna30、共有group35（Piとfixtureは従来どおり16）とする。実際の`LIMITS_JSON`は別途管理者が設定し、0による停止も維持する。profile数で枠を増やさず、全ownerで同じmodel keyを合算する。TAKTはSol/Lunaを各1と共有group1を予約し、内部providerは同時1のまま。API/GUIには現在のmodel枠と閲覧ownerの共有group上限を表示し、他groupの名前は返さない。既存DBの整数列・JSON予約にはmigration不要で、SQLiteの競合claim試験でLuna30、共有35、TAKT/Sol5を検証する。
 
