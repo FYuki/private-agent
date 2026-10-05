@@ -3,13 +3,13 @@ import {isAbsolute,resolve,relative,sep} from 'node:path';
 import {object,exact,str} from '../shared/contracts.ts';
 import {repositoryPolicy,type RepositoryId} from '../shared/repositories.ts';
 
-export type RepositoryBinding = {repoId:RepositoryId;root:string;worktrees:string;owners:string[];visibility:'private'|'public';publishAuthorized:boolean};
+export type RepositoryBinding = {repoId:RepositoryId;root:string;worktrees:string;owners:string[];visibility:'private'|'public';publishAuthorized:boolean;approvedPublicationAllowed?:boolean};
 /** 管理者だけが設定する配置。taskからroot・argv・公開権限を受け付けない。 */
 export function repositoryBindings(value:unknown):RepositoryBinding[] {
   if(!Array.isArray(value)||value.length<1||value.length>2)throw Error('invalid_repository_registry');
   const ids=new Set<string>();
   return value.map(raw=>{
-    const v=object(raw);exact(v,['repoId','root','worktrees','owners','visibility','publishAuthorized']);repositoryPolicy(v.repoId);
+    const v=object(raw);exact(v,['repoId','root','worktrees','owners','visibility','publishAuthorized','approvedPublicationAllowed']);repositoryPolicy(v.repoId);
     const repoId=v.repoId as RepositoryId;if(ids.has(repoId))throw Error('duplicate_repository');ids.add(repoId);
     const root=str(v.root,4096),worktrees=str(v.worktrees,4096);
     for(const p of [root,worktrees])if(!isAbsolute(p)||resolve(p)!==p)throw Error('untrusted_admin_path');
@@ -20,7 +20,8 @@ export function repositoryBindings(value:unknown):RepositoryBinding[] {
     if(contains(root,worktrees)||contains(worktrees,root))throw Error('overlapping_repository_paths');
     if(!Array.isArray(v.owners)||!v.owners.length||v.owners.length>16||v.owners.some(x=>typeof x!=='string'||!/^[a-zA-Z0-9_-]{1,64}$/.test(x)))throw Error('invalid_repository_owners');
     if(!['private','public'].includes(v.visibility as string)||typeof v.publishAuthorized!=='boolean')throw Error('invalid_repository_permission');
-    return {repoId,root,worktrees,owners:[...new Set(v.owners as string[])],visibility:v.visibility as 'private'|'public',publishAuthorized:v.publishAuthorized};
+    if(v.approvedPublicationAllowed!==undefined&&typeof v.approvedPublicationAllowed!=='boolean')throw Error('invalid_repository_permission');
+    return {repoId,root,worktrees,owners:[...new Set(v.owners as string[])],visibility:v.visibility as 'private'|'public',publishAuthorized:v.publishAuthorized,approvedPublicationAllowed:v.approvedPublicationAllowed===true};
   });
 }
 export function selectRepository(bindings:RepositoryBinding[],repoId:string,owner:string):RepositoryBinding {

@@ -15,7 +15,7 @@ TAKTには既存固定simple・model/effort・同時provider 1を使う。Git認
 
 `publishAuthorized:false`では、検証済みローカルcommitと`worktrees/.artifacts/<artifactId>.json`を保存し、`outcome:local_only`で正常終了する。結果にはrepo、owner、task、base/head SHA、source hash、検証契約、固定argv、TAKT検証情報を含む。公開許可がある新規taskだけがdraft PRを作り、`outcome:published`とprUrlを返す。
 
-既存local-only taskを再実行して公開へ昇格させることはできない。prepare台帳はmodeも含めて固定し、成果物は内容hashによるIDで排他的に保存する。後日の公開APIは未実装である。将来追加する場合は別の承認operationとして、owner／repo／artifactId／exact head／検証証跡と現在のGit状態を再照合しなければならない。モデルの承認文や単なる設定変更で代用してはいけない。
+既存local-only taskを再実行して公開へ昇格させることはできない。prepare台帳はmodeも含めて固定し、成果物は内容hashによるIDで排他的に保存する。後日の公開APIは未実装である。この操作は別の承認operationとして、owner／repo／artifactId／exact head／検証証跡と現在のGit状態を再照合しなければならない。モデルの承認文や単なる設定変更で代用してはいけない。
 
 ## 初回候補の調査と検証範囲
 
