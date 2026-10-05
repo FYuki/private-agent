@@ -14,7 +14,7 @@ export async function saveArtifact(root:string,artifact:LocalArtifact):Promise<S
   catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;const stat=await lstat(path);if(await realpath(path)!==path||!stat.isFile()||stat.nlink!==1||(stat.mode&0o077)!==0||await readFile(path,'utf8')!==serialized)throw Error('artifact_conflict');}
   return {...artifact,artifactId};
 }
-/** local-onlyは正常終端。設定変更による既存taskの公開昇格は禁止し、別承認操作の実装まで再公開しない。 */
+/** local-onlyは正常終端。設定変更による既存taskの公開昇格は禁止し、後日公開は独立したpublication承認・台帳だけで行う。 */
 export async function finishArtifact(artifact:SavedArtifact,mode:'local_only'|'published',publish:()=>Promise<{url:string}>) {
   const {artifactId,...manifest}=artifact;
   if(fingerprint(manifest)!==artifactId||artifact.mode!==mode)throw Error('artifact_approval_mismatch');

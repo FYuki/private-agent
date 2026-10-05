@@ -5,6 +5,7 @@
     "worktrees": "/absolute/path/to/voice-task-worktrees",
     "owners": ["local"],
     "visibility": "public",
-    "publishAuthorized": false
+    "publishAuthorized": false,
+    "approvedPublicationAllowed": false
   }
 ]

@@ -35,5 +35,6 @@ jobs:
           done
           npm run test:integration
           node --import tsx scripts/development-integration.ts
+          node --import tsx scripts/publication-integration.ts
           node --import tsx scripts/takt-api-check.ts
           node --import tsx scripts/realtime-check.ts
