@@ -4,7 +4,6 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {Store,type Database,type Statement} from '../control-plane/store.ts';
 import {LIMITS,jobInput,capacity} from '../shared/contracts.ts';
-import {dispatch} from '../control-plane/dispatch.ts';
 class Sqlite implements Database{
  db=new DatabaseSync(':memory:');
  constructor(){for(const file of ['0001_initial.sql','0002_capacity.sql','0003_development.sql','0004_takt_resources.sql'])this.db.exec(readFileSync('control-plane/migrations/'+file,'utf8'));}
@@ -90,20 +89,24 @@ test('overlap skip before workflow admission, concurrent ticks, no catchup, outb
  await s.cancel('a',r.id);now+=1;assert.equal((await s.tick()).enqueued,0,'duplicate skipped slot remains skipped');
  assert.equal((await s.list('a')).runs.length,4);now+=600000;await s.tick();assert.equal((await s.list('a')).runs.length,4,'missed/future end slots do not catch up');
 });
-test('terminal failed workflow releases unclaimed start without retrying external work',async()=>{
- let now=1000000;const s=new Store(new Sqlite(),()=>now);await s.create('a','key',{...input,maxRuns:3});
- let creates=0;const workflows={async create(){creates++;throw Error('existing');},async get(){return {async status(){return {status:'errored'};}};}};
- const first=await dispatch(workflows,s,now,'a');assert.equal(first.failedStarts.length,1);
- assert.equal((await s.list('a')).runs[0].error,'workflow_failed');
- await dispatch(workflows,s,now,'a');assert.equal(creates,1,'terminal start is not retried forever');
- now+=60000;const next=await s.tick();assert.equal(next.enqueued,1,'next occurrence is not permanently skipped');
- await s.activate(next.pending[0].id);const running=(await s.claim('a','w'))!;
- await s.failStarting(running.id);assert.equal((await s.list('a')).runs.find(r=>r.id===running.id)!.state,'running');
+test('activation fences a disabled job after its starting run was selected',async()=>{
+ const db=new Sqlite(),s=new Store(db,()=>1000000);try{
+  const id=await s.create('a','disabled-after-selection',input);const pending=(await s.tick()).pending;
+  assert.equal(pending[0].id,id+':0');
+  assert.equal((await s.list('a')).runs[0].state,'starting');
+  await s.q('UPDATE jobs SET enabled=0 WHERE id=?',id).run();await s.activate(pending[0].id);
+  assert.equal(await s.claim('a','worker'),null);
+ }finally{db.db.close();}
 });
-test('unknown workflow status preserves outbox and raises rather than silently succeeding',async()=>{
- const s=new Store(new Sqlite(),()=>1000000);await s.create('a','key',input);
- await assert.rejects(dispatch({async create(){throw Error('create unavailable');},async get(){return {async status(){return {status:'unknown'};}};}},s,1000000,'a'),/unavailable/);
- assert.equal((await s.list('a')).runs[0].state,'starting');
+test('activation preserves cancelled and already claimed run states',async()=>{
+ const db=new Sqlite(),s=new Store(db,()=>1000000);try{
+  const cancelled=await s.create('a','cancelled',input),active=await s.create('a','active',input);await s.tick();
+  await s.cancel('a',cancelled+':0');await s.activate(cancelled+':0');
+  assert.equal((await s.list('a')).runs.find(r=>r.job_id===cancelled)!.state,'cancelled');
+  await s.activate(active+':0');const run=await s.claim('a','worker');assert.ok(run);
+  await s.activate(run.id);assert.equal((await s.list('a')).runs.find(r=>r.id===run.id)!.state,'running');
+  assert.equal(await s.claim('a','other'),null);
+ }finally{db.db.close();}
 });
 test('global per-model and shared auth limits, competing workers never exceed either',async()=>{
  const {s}=setup();for(const owner of ['a','b'])for(const p of ['codex-luna','pi-swe2'])await s.create(owner,p,{...input,provider:p});await s.tick();

@@ -1,9 +1,10 @@
 import {writeFile,readFile,lstat,realpath} from 'node:fs/promises';
 import {join} from 'node:path';
+import type {CommitRangeProof} from './commit-range.ts';
 import {fingerprint} from './operations.ts';
 import type {RepositoryId} from '../shared/repositories.ts';
 
-export type LocalArtifact={version:1;taskId:string;owner:string;repoId:RepositoryId;baseRef:string;baseSha:string;headSha:string;branch:string;contentHash:string;validation:string;checks:string[][];mode:'local_only'|'published';execution?:unknown};
+export type LocalArtifact={version:1;taskId:string;owner:string;repoId:RepositoryId;baseRef:string;baseSha:string;headSha:string;branch:string;contentHash:string;validation:string;checks:string[][];mode:'local_only'|'published';execution?:unknown;commitRange?:CommitRangeProof};
 export type SavedArtifact=LocalArtifact&{artifactId:string};
 /** modelの書込範囲外へ排他的に保存する。既存成果物との不一致は上書きせず停止する。 */
 export async function saveArtifact(root:string,artifact:LocalArtifact):Promise<SavedArtifact> {

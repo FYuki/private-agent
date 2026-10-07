@@ -113,4 +113,12 @@ npm run child-issue -- --resume-publication /absolute/runDir --run
 
 同じworktreeの入口はローカルlockで重複実行を拒否する。異常終了で`.local/child-issue-runs/<hash>.lock`が残った場合は、対象プロセスが停止したことを確認してからそのlockだけを削除する。実行中のworktreeを他の編集プロセスと共有しない。run記録と承認済みHEADは基盤リポジトリの`.local/child-issue-runs`に保存する。
 
-追加検証は公式Engineでの`simple → review-fix`自動遷移、公式実行APIのNDJSON合否証跡、質問のみでの停止、およびローカルbare Git＋GitHub stubでのEpic宛PR、応答不明の照合、変更後の再公開拒否を対象にする。実モデルとGitHubへの実push/PRの受入は別途実行が必要。
+追加検証は公式Engineでの`simple → review-fix`自動遷移、公式実行APIのNDJSON合否証跡、質問のみでの停止、およびローカルbare Git＋GitHub stubでのEpic宛PR、応答不明の照合、変更後の再公開拒否を対象にする。実モデルとGitHubへの実push/PRの受入はこれらの試験と区別し、以下に記す。
+
+## main統合とwatch接続の状態
+
+レビュー機構はPR20・PR27を含むmain（`12e5b80`）に追従し、ローカルSQLite/loopbackの基盤とwatch検証を維持する。今回の機構自体の統合先はmainであり、子Issue実行時に指定する`--epic`（成果PRの宛先）とは別である。
+
+子Issue #25では、TAKT経路を実モデルで実行し、案件レビューでの指摘修正・再レビュー、必須広範品質review-fix、最終APPROVE、同じブランチからのdraft PR #26作成まで完走した。この実績はmain追従前の`4798ea5`に対するもので、非TAKT経路やwatch経由の統合完走を実証するものではない。
+
+現在の`child-issue`は公式実行APIを直接呼ぶ。watchへの登録・MCPでの再接続・取消・成果物回収との接続は後続PRで行う。review/prepareのworkflowとfacetをwatchの固定構成に組み込み、同じtask/run/HEADの承認証跡を公開へ引き渡す必要がある。単に`child-issue`を別プロセスで起動してwatchの寿命管理を迂回しない。統合受入では再接続によるレビュー・PRの重複、取消後の公開、成果物HEADと公開HEADの不一致を検証する。

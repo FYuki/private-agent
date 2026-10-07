@@ -1,5 +1,7 @@
 # V1 acceptance and measurements
 
+現在の制御基盤はNode 24・SQLiteです。[ローカル運用と検証](local-control.md)を参照。以下のD1/Workflows測定値・件数・失敗・commitは各試験時点の履歴であり、SQLiteでの新規受入結果へ読み替えません。
+
 Measured 2026-10-01 in Ubuntu WSL, Node 24.20.0. Original main was `85da744` (`README.md` only); work is on `feat/knowledge-summary-mvp`. Nothing was merged or deployed. Production cron is empty/disabled.
 
 ## Evidence

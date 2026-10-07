@@ -8,26 +8,26 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "check:local": "node scripts/check-local-dependencies.mjs",
     "test": "tsx --test tests/*.test.ts",
     "dev:setup": "node scripts/dev-setup.mjs",
-    "db:local": "wrangler d1 migrations apply DB --local",
-    "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "db:local": "tsx control-plane/local.ts migrate",
+    "dev": "tsx control-plane/local.ts serve",
     "worker": "tsx wsl-worker/main.ts",
     "worker:development": "tsx development/runner.ts",
     "mcp:development": "tsx development/mcp.ts",
     "test:integration": "tsx scripts/integration.ts",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "test:local": "tsx scripts/local-integration-run.ts",
+    "build": "npm run check && node scripts/build.mjs",
     "review:prepare": "node review/cli.mjs",
     "test:review": "node --test scripts/review/*.test.mjs && node scripts/review/engine-check.mjs",
     "child-issue": "node review/child-cli.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261001.1",
     "@types/node": "26.6.3",
     "playwright-core": "1.63.0",
     "tsx": "4.23.15",
-    "typescript": "7.0.2",
-    "wrangler": "4.145.0"
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.0",

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {"noEmit":false,"rewriteRelativeImportExtensions":true,"outDir":"dist","rootDir":"."},
+  "include": ["control-plane/**/*.ts", "shared/**/*.ts", "agent/store.ts"]
+}

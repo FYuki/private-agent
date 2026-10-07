@@ -1,0 +1,37 @@
+{
+  "taskId": "2c755205-4334-426a-91ea-09e563f6e6b7",
+  "runSlug": "20261005-105346-implement-using-only-the-files-c6mve5",
+  "workflow": "official default 0.68.0",
+  "fullAcceptanceSucceeded": false,
+  "d1State": "failed",
+  "holdUntil": 0,
+  "adapterError": "watch_task_failed",
+  "providerStartsLastObserved": 18,
+  "providerClosedLastObserved": 17,
+  "providerStartsFinal": null,
+  "providerBudgetForThisRun": 59,
+  "priorFailedRunStarts": 1,
+  "totalProviderStartsConfirmedAtLeast": 19,
+  "totalProviderBudgetAuthorized": 60,
+  "lastObservedElapsedSeconds": 1524,
+  "lastObservedStep": "development-core/replan",
+  "maxCliParallelLastObserved": 1,
+  "temporaryRunDirectoryExists": false,
+  "terminalOfficialReasonAvailable": false,
+  "hostEvidence": {
+    "snapshotHash": "197fdb288bdbc4ed5cb9b34e222d2685433ad640aa84554f677579b7dd1567b8",
+    "paths": [
+      "shared/greeting.js",
+      "tests/greeting.test.js"
+    ],
+    "checksPassed": true,
+    "independentAssertions": 5,
+    "instructionHash": "4d89b7b8f157007d914a2ccc2edce122e9ff51101851e7c16d2f14ecbeb3d908",
+    "deliveryAccepted": true,
+    "consumptionConfirmed": false
+  },
+  "inputRuntimeSha256": "89140cbb8d83ca51a94ae3f2e471a219764a79531feb131514468b65a11fcefa",
+  "normalRunnerEnabled": false,
+  "remotePublication": false,
+  "additionalLiveRunsBlockedPendingNewBudget": true
+}

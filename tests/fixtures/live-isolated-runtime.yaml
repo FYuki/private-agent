@@ -1,0 +1,67 @@
+version: 1
+provider:
+  defaults:
+    profile: luna-xhigh
+  profiles:
+    sol-xhigh:
+      provider: codex
+      model: gpt-6-sol
+      options:
+        reasoning_effort: xhigh
+    sol-medium:
+      provider: codex
+      model: gpt-6-sol
+      options:
+        reasoning_effort: medium
+    luna-xhigh:
+      provider: codex
+      model: gpt-6-luna
+      options:
+        reasoning_effort: xhigh
+    opus5:
+      provider: claude
+      model: claude-opus-5.5
+    cloud-model:
+      provider: claude
+      model: claude-sonnet-4-6
+    devin-swe2:
+      provider: pi
+      model: devin/swe-2-max
+      options:
+        thinking_level: max
+        extensions:
+          - npm:pi-devin-connector@0.1.2
+        no_extensions: true
+    poc-plan-sol61:
+      provider: codex
+      model: gpt-6.1-sol
+      options:
+        reasoning_effort: xhigh
+  targets:
+    internal_agents:
+      assistant:
+        profile: sol-xhigh
+    steps:
+      review/review-synthesis:
+        profile: sol-medium
+      review/supervise:
+        profile: sol-medium
+    tags:
+      plan:
+        profile: poc-plan-sol61
+      coding:
+        profile: sol-medium
+      review:
+        profile: sol-medium
+      adjudication:
+        profile: sol-medium
+      verification:
+        profile: sol-medium
+      supervise:
+        profile: sol-medium
+      merge-readiness:
+        profile: sol-medium
+      final-gate:
+        profile: sol-medium
+      cloud-model:
+        profile: cloud-model

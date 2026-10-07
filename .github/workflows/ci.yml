@@ -7,34 +7,25 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # nested user/PID namespaces for the mandatory watch stub
     timeout-minutes: 10
     env:
-      WRANGLER_SEND_METRICS: 'false'
       CI: 'true'
+      REQUIRE_PID_NAMESPACE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
+      - name: Install sandbox dependencies and the same Node binary inside /usr
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo install -m 755 "$(command -v node)" /usr/bin/node
       - run: npm ci
+      - run: npm run check:local
       - run: npm run check && npm test && npm run build
       - name: Pinned TAKT schema and builtin contract (no provider calls)
-        run: npm ci --prefix runtime/takt --ignore-scripts && node --import tsx scripts/takt-config-check.ts && npm run test:review
-      - run: npm run dev:setup && npm run db:local
-      - name: Local D1 and Workflows integration (no provider secrets)
-        shell: bash
-        run: |
-          npm run dev > /tmp/private-agent-wrangler.log 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 60); do
-            if curl --silent --fail http://127.0.0.1:8787/ > /dev/null; then break; fi
-            sleep 1
-          done
-          npm run test:integration
-          node --import tsx scripts/development-integration.ts
-          node --import tsx scripts/publication-integration.ts
-          node --import tsx scripts/takt-api-check.ts
-          node --import tsx scripts/realtime-check.ts
+        run: npm ci --prefix runtime/takt --ignore-scripts && node --import tsx scripts/takt-config-check.ts && node --import tsx scripts/watch-contract-check.ts && node --import tsx scripts/watch-runtime-config-check.ts && node --import tsx scripts/watch-binding-check.ts && node --import tsx scripts/watch-runtime-smoke.ts && npm run test:review
+      - name: Isolated SQLite and loopback integration (no provider secrets)
+        run: npm run test:local
