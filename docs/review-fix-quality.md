@@ -44,3 +44,42 @@ npm run review:prepare -- --development takt --project /absolute/target-worktree
 実モデルによる検出精度・誤検知率・費用・CodeRabbitとの比較は未評価。運用受入では代表的な実PRと既知の欠陥を使って別途評価する。既存CodeRabbitサービスのmerge条件やwatch/D1統合の受入状態を、このfixture成功で置き換えない。
 
 `--project`はHEADのあるGit worktreeのルートが必要。TAKT配下の子モデルでは共有メモリフックを無効にし、runごとのモデル出力を個別の共有journalとして保存しない。
+
+## 子Issueの実装からEpic宛PRまで自動実行
+
+子Issue用の入口は`npm run child-issue`。既存の子Issue worktreeを指定し、同じブランチで実装→必須レビュー→修正/検証/再レビュー→commit→push→Epic宛draft PRまで実行する。レビュー用の別ブランチを作らず、mainへは公開しない。
+
+```bash
+npm run child-issue -- \
+  --project /absolute/child-issue-worktree \
+  --repo FYuki/private-agent --issue 123 \
+  --branch feature/issue-123 --epic epic/review-ai \
+  --task-file /absolute/issue-123.txt --development takt --run
+```
+
+`--run`を外すと構成と公式loaderの検証のみ。対象worktreeは既に存在し、指定された子Issueブランチをcheckoutしている必要がある。Epicブランチはoriginに存在し、その最新HEADが子Issueの祖先であることを開始時に確認する。実行中にEpicが進んだ場合は公開前に停止する。起点を同期して再レビューする。
+
+TAKT経路では固定版`simple`から生成した`private-agent-child-issue`を実行する。`supervise: APPROVE`の後に`private-agent-review-fix-takt`を自動呼出しするため、案件レビューは重複しない。`plan`で質問に答えただけのCOMPLETEは子Issue完了とせず停止する。最終review-fixが合格した場合だけホストが公開する。既存の`simple`や既存のwatch/D1 workerをグローバルに変更するものではなく、子Issueの起動をこの入口に切り替える。
+
+非TAKT開発も自動連結する場合は、信頼した呼出し元から実装コマンドをargvのJSON配列で指定する。シェル文字列として実行せず、コマンドが成功終了した後に`private-agent-review-fix-external`を実行する。タスク本文やモデル出力から実行コマンドを取り出さない。
+
+```bash
+npm run child-issue -- \
+  --project /absolute/child-issue-worktree \
+  --repo FYuki/private-agent --issue 123 \
+  --branch feature/issue-123 --epic epic/review-ai \
+  --task-file /absolute/issue-123.txt --development external \
+  --implementation-command '["node","/absolute/trusted-development-entry.mjs"]' --run
+```
+
+自動PRの条件は、今回の公式runが完了し、最後の広範品質レビューと最終ゲートがAPPROVEであること。単なるプロセスのexit0は採用しない。失敗、BLOCKED、step上限、実装コマンドの失敗はPR作成へ進まない。PRは指定repo内の`子Issueブランチ → epic/*`に限定し、既存PRのhead/base/SHAを照合する。force push・merge・Issue closeは実施しない。CI成功はPR作成後に別途確認する。
+
+公開だけが失敗した場合は、出力されたrunDirを指定して再開できる。レビュー済みHEADとclean worktree、EpicのSHAが保存時と一致する場合だけ、pushとPR照合/作成を再試行する。既存PRがあれば再利用し、応答不明でも同じhead/base/SHAのPRを照合する。
+
+```bash
+npm run child-issue -- --resume-publication /absolute/runDir --run
+```
+
+同じworktreeの入口はローカルlockで重複実行を拒否する。異常終了で`.local/child-issue-runs/<hash>.lock`が残った場合は、対象プロセスが停止したことを確認してからそのlockだけを削除する。実行中のworktreeを他の編集プロセスと共有しない。run記録と承認済みHEADは基盤リポジトリの`.local/child-issue-runs`に保存する。
+
+追加検証は公式Engineでの`simple → review-fix`自動遷移、公式実行APIのNDJSON合否証跡、質問のみでの停止、およびローカルbare Git＋GitHub stubでのEpic宛PR、応答不明の照合、変更後の再公開拒否を対象にする。実モデルとGitHubへの実push/PRの受入は別途実行が必要。

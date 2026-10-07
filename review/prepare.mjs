@@ -74,12 +74,30 @@ export async function prepareReview({ output, input = join(repository, 'examples
     }
     const workflow = builtin('review-fix');
     workflow.name = `private-agent-review-fix-${route}`;
+    workflow.subworkflow = { callable: true, visibility: 'internal', params: {} };
     workflow.steps.find(s => s.name === 'reviewers').args.reviewer_suite = suite.name;
     for (const document of [suite, workflow]) {
       writeFileSync(join(configDir, 'workflows', `${document.name}.yaml`), stringify(document));
     }
     workflows[route] = workflow.name;
   }
+  // 開発の成功遷移だけを後続review-fixへ接続する。質問への回答は子Issue完了ではない。
+  const child = builtin('simple');
+  child.name = 'private-agent-child-issue';
+  child.max_steps += builtin('review-fix').max_steps;
+  for (const step of child.steps) {
+    for (const rule of step.rules ?? []) {
+      if (rule.next === 'COMPLETE') {
+        rule.next = step.name === 'supervise' && rule.condition === 'APPROVE' ? 'quality-review-fix' : 'ABORT';
+      }
+    }
+  }
+  child.steps.push({
+    name: 'quality-review-fix', kind: 'workflow_call', call: workflows.takt,
+    rules: [{ condition: 'COMPLETE', next: 'COMPLETE' }, { condition: 'ABORT', next: 'ABORT' }],
+  });
+  writeFileSync(join(configDir, 'workflows', `${child.name}.yaml`), stringify(child));
+  workflows.child = child.name;
   writeFileSync(join(configDir, 'manifest.json'), JSON.stringify({
     taktVersion: pkg.version, integrity, workflows, sources,
     input: { config: sha(configBytes), runtime: sha(runtimeBytes) }, overrides: { auto_pr: false },

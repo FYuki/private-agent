@@ -24,6 +24,17 @@ test('prepare entry resolves both routes without a provider and refuses project 
         assert.equal(readFileSync(join(result.runDir, 'config/runtime.yaml'), 'utf8'), original[1]);
       } finally { rmSync(result.runDir, { recursive: true, force: true }); }
     }
+    execFileSync('git', ['checkout', '-qb', 'feature/issue-42'], { cwd: dir });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/owner/repo.git'], { cwd: dir });
+    const childArgs = [join(repository, 'review/child-cli.mjs'), '--project', dir, '--repo', 'owner/repo', '--issue', '42', '--branch', 'feature/issue-42', '--epic', 'epic/feature', '--task-file', task];
+    const child = JSON.parse(execFileSync(process.execPath, childArgs, { encoding: 'utf8', timeout: 20000 }));
+    try {
+      assert.equal(child.execute, false);
+      assert.equal(child.epic, 'epic/feature');
+      assert.match(child.workflow, /private-agent-child-issue.yaml$/);
+    } finally { rmSync(child.runDir, { recursive: true, force: true }); }
+    const wrongBase = spawnSync(process.execPath, [...childArgs, '--epic', 'main'], {encoding: 'utf8'});
+    assert.equal(wrongBase.status, 1);
     mkdirSync(join(dir, '.takt'));
     writeFileSync(join(dir, '.takt/config.yaml'), 'workflow_overrides: {}\n');
     const rejected = spawnSync(process.execPath, [...args, '--development', 'external'], { encoding: 'utf8', timeout: 20000 });

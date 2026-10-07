@@ -107,3 +107,5 @@ Development tasks default to programmatic orchestration with the pinned TAKT `si
 完了local-only成果物の別承認公開は [後日公開の契約](docs/artifact-publication.md) を参照。
 
 PR前の独自品質レビューと修正には[review-fixの実行手順](docs/review-fix-quality.md)を参照。TAKT開発済みと通常開発で入口を分け、広範品質レビューを必須実行する。
+
+子Issueのworktreeで実装から必須レビュー、Epic宛draft PRまで自動実行する入口は `npm run child-issue`。[引数と再開手順](docs/review-fix-quality.md#子issueの実装からepic宛prまで自動実行)を参照。

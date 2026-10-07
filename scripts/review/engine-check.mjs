@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { assertReviewApproval } from '../../review/child-issue.mjs';
 import { prepareReview } from '../../review/prepare.mjs';
 const dir = mkdtempSync(join(tmpdir(), 'quality-engine-'));
 try {
@@ -25,6 +26,8 @@ try {
       const count = (decisions.get(name) ?? 0) + 1;
       decisions.set(name, count);
       let index = 0;
+      if (name === 'supervise') index = 1;
+      if (name === 'plan' && scenario === 'question-only') index = 1;
       if (name === 'quality-review') index = count === 1 ? 1 : 0;
       if (name === 'review-adjudication') index = count === 1 ? 0 : 1;
       if (name === 'final-gate') index = scenario === 'blocked' ? 2 : count === 1 ? 1 : 0;
@@ -35,7 +38,7 @@ try {
     async decomposeTask() { throw Error('Unexpected decomposition'); },
     async requestMoreParts() { throw Error('Unexpected decomposition'); },
   };
-  for (const [route, mode] of [['external', 'empty-pool'], ['takt', 'empty-pool'], ['external', 'selected'], ['takt', 'blocked'], ['external', 'invalid-selection']]) {
+  for (const [route, mode] of [['external', 'empty-pool'], ['takt', 'empty-pool'], ['external', 'selected'], ['takt', 'blocked'], ['external', 'invalid-selection'], ['child', 'empty-pool'], ['child', 'question-only'], ['child', 'blocked']]) {
     scenario = mode;
     decisions.clear();
     setMockScenario(['dynamic-parallel-selector', 'dynamic-facet-selector'].flatMap(persona =>
@@ -48,17 +51,22 @@ try {
       companionEnabled: false, reportDirName: `fixture-${route}-${mode}`,
       workflowCallResolver: ({ parentWorkflow, step }) => resolveWorkflowCallTarget(parentWorkflow, step, dir),
     });
+    const evidence = [{type: 'workflow_start', workflowName: workflow.name}];
+    engine.on('phase:complete', (step, phase, _name, content, status, _error, _id, _iteration, stack) => evidence.push({type: 'phase_complete', step: step.name, phase, content, status, stack}));
+    engine.on('step:complete', (step, response, _instruction, _resume, stack) => evidence.push({type: 'step_complete', step: step.name, workflow: stack.at(-1).workflow, ...response}));
+    engine.on('workflow:complete', () => evidence.push({type: 'workflow_complete'}));
     engine.on('workflow:abort', (_state, reason) => console.error(reason));
     engine.on('step:error', (...args) => console.error('step:error', args));
     const state = await engine.run();
     console.log(`${route}/${mode}: ${state.status}`);
-    if (mode === 'blocked' || mode === 'invalid-selection') {
+    if (mode === 'blocked' || mode === 'invalid-selection' || mode === 'question-only') {
       assert.equal(state.status, 'aborted');
       assert.equal(decisions.get('final-gate') ?? 0, mode === 'blocked' ? 1 : 0);
       assert.equal(decisions.get('quality-review') ?? 0, mode === 'blocked' ? 2 : 0);
       continue;
     }
     assert.equal(state.status, 'completed');
+    assertReviewApproval({success: true}, evidence, workflow.name);
     assert.equal(decisions.get('quality-review'), 3, 'initial rejection and final-gate rejection both require re-review');
     assert.equal(decisions.get('fix'), 2);
     assert.equal(decisions.get('fix-verifier'), 2);

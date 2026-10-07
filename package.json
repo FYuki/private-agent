@@ -18,7 +18,8 @@
     "test:integration": "tsx scripts/integration.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "review:prepare": "node review/cli.mjs",
-    "test:review": "node --test scripts/review/*.test.mjs && node scripts/review/engine-check.mjs"
+    "test:review": "node --test scripts/review/*.test.mjs && node scripts/review/engine-check.mjs",
+    "child-issue": "node review/child-cli.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261001.1",
