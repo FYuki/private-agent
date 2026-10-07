@@ -33,6 +33,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const {assertTaskStateWorktreeOwnership}=await import('/opt/takt-runtime/node_modules/takt/dist/features/tasks/taskStateWorktreeOwnership.js');
   const bound=ownedClone(process.argv.slice(2),policy,new TaskRunner(policy.root).listTaskStateItems());assertTaskStateWorktreeOwnership(policy.root,bound.task);
   const {args,model,effort}=codexArgs(bound.mapped,true);
-  await parallelRun({file:'/usr/bin/bwrap',args:watchProviderArgs(bound.cwd,args,policy),directory:'/run-private',maxCalls:policy.maxCalls,profile:{model,effort,taskName:bound.task.name,runSlug:bound.task.runSlug},env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'}});
+  await parallelRun({file:'/usr/bin/bwrap',args:watchProviderArgs(bound.cwd,args,policy),directory:'/run-private',maxCalls:policy.maxCalls,callMs:policy.callMs,profile:{model,effort,taskName:bound.task.name,runSlug:bound.task.runSlug},env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'}});
  }catch(e){process.stderr.write(String(e.message)+'\n');process.exitCode=1;}
 }

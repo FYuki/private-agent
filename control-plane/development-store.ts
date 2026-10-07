@@ -1,4 +1,4 @@
-import { Store } from './store.ts';
+import { Store,DELEGATED_WATCH_SQL } from './store.ts';
 import { Fault, LIMITS } from '../shared/contracts.ts';
 import { DEVELOPMENT_BUDGET_MS, developmentInput } from '../shared/development.ts';
 
@@ -49,7 +49,7 @@ export class DevelopmentStore {
     const s=this.store;
     await s.heartbeat(owner,worker,taskId+':0',token);
     if (!await s.q('SELECT id FROM development_tasks WHERE id=? AND owner=?',taskId,owner).first()) throw new Fault(404,'not_found');
-    const fence=`EXISTS(SELECT 1 FROM runs WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND lease_until>? AND deadline>?)`;
+    const fence=`EXISTS(SELECT 1 FROM runs WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND ((lease_until>? AND deadline>?) OR ${DELEGATED_WATCH_SQL}))`;
     const lease=()=>[taskId+':0',owner,worker,token,s.now(),s.now()];
     const inserted=await s.q(`INSERT OR IGNORE INTO development_operations(task_id,name,fingerprint) SELECT ?,?,? WHERE ${fence} RETURNING name`,taskId,name,fingerprint,...lease()).first();
     if(!await s.q(`SELECT 1 WHERE ${fence}`,...lease()).first())throw new Fault(409,'lease_lost_or_cancelled');

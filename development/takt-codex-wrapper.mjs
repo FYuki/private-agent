@@ -62,8 +62,8 @@ export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=1
   const kill=sig=>{try{if(child.pid)process.kill(-child.pid,sig);}catch{}};
   let escalation;
   const stop=()=>{if(failed)return;failed=true;kill('SIGINT');escalation=setTimeout(()=>kill('SIGKILL'),2000);};
-  const touch=()=>{clearTimeout(idle);idle=setTimeout(stop,idleMs);};
-  const hard=setTimeout(stop,callMs);touch();mark('started');
+  const touch=()=>{clearTimeout(idle);if(idleMs!==null)idle=setTimeout(stop,idleMs);};
+  const hard=callMs===null?undefined:setTimeout(stop,callMs);touch();mark('started');
   signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();
   const sig=()=>stop();process.on('SIGINT',sig);process.on('SIGTERM',sig);
   child.stdin.on('error',()=>{});stdin.pipe(child.stdin);

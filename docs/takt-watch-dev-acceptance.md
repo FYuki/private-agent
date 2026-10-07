@@ -2,6 +2,8 @@
 
 この変更はPR22の隔離dev/test用。通常runnerの`watch_runtime_validation_pending`、本番cron無効、公開承認境界を維持する。
 
+2026-10-07の本人方針に基づく現在の実行寿命・監視再接続・明示取消は [実行と監視の寿命](takt-watch-lifetime.md) を正本とする。以下の60 CLI・各300秒・全体60分は従前の有限試験の記録であり、通常watchの固定上限ではない。
+
 ## ジョブ枠とモデル
 
 新規`takt-watch` taskはD1でplan系列Solの1枠と共有groupの1枠を予約する。coding、review、selectorは追加jobとして数えない。現対応はplanが`gpt-6-sol`または`gpt-6.1-sol`の構成だけで、Luna planは`plan_job_family_mismatch`としてモデル開始前に拒否する。Luna planを対応させる際は、受付側のprofileとworker側の解決結果をともに変更する。既存taskの予約値は書き換えない。
@@ -46,7 +48,15 @@ T3専用worktreeの絶対パスでは、従来の `.local/w/<4文字>/<UUID>/clo
 
 secret不要検証は型検査、124テスト、dry-run build、公式schema／reader／runtime設定／失敗stub、ローカルD1・Workflows統合が成功。D1付きdefault失敗stubは2件実施し、それぞれ2起動・2終了、watch停止、D1 failed／hold_until=0、入力hash維持と永続証跡を別プロセスで確認した。**実モデル呼出しは0回、実統合受入は未成功**。終了照合は `scripts/watch-dev-evidence-check.ts` を使い、stubの証跡をlive成功として受理しない。
 
-### 次の一件（予算承認待ち）
+### 従前の短時間試験案（2026-10-07本人指摘により見直し）
+
+本人から「TAKTによる実装は長い場合6時間に及ぶ」と指摘を受けた。以下の60分案をそのまま承認依頼・実行へ進めない。実装委譲先はTAKTであり、PrivateAgentには長時間の受付・lease更新・監視・取消・停止確認・成果物回収が必要。
+
+現コードのD1受付はTAKTジョブを最大24時間、既定4時間で受ける。一方、watch adapter/wrapperには最大60 CLI・各300秒が固定され、受入入口は最大60分に制限されている。6時間という全体時間だけではCLI回数や1 CLIの許容時間は決まらない。タスク全体の期限、個別CLIの時間、無進捗判定、呼出回数を分け、TAKT workflow側の制御との責務を整理する。6時間ジョブと、その後のhost検証・artifact保存の時間を扱える契約を先に定める。
+
+短い実モデル試験は配線確認に限り、長時間運用の受入とは区別する。長時間のlease維持・期限境界・取消・再起動後の状態照合はsecret不要試験で検証し、実モデルで測る範囲と予算を改めて提示する。今回の6時間という利用実態の説明を、6時間の実モデル試験予算承認とは扱わない。
+
+以下は見直し前の提案の履歴であり、現在の実行指示ではない。
 
 - payload：合成Gitの `shared/greeting.js` と `tests/greeting.test.js` のみ変更。名前をtrimし、未指定・空・空白のみなら `Hello, world`。既存 `Ada` の互換性を保つ。正確なgoal／ACは受入scriptのspec、ローカル準備済み `.local/verification/live-request-proposal.json` に保存。
 - 公式TAKT 0.68.0 defaultを1件。plan=6.1 Sol xhigh、coding/review=6 Sol medium、default/selector=Luna xhigh。runtimeの他設定は提供v3を維持。

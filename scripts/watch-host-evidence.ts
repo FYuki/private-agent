@@ -10,7 +10,7 @@ import {TaktWatchClient} from '../development/takt-watch-client.ts';
 const tag=process.env.WATCH_ACCEPTANCE_ID;if(!tag||!/^[a-z0-9-]{1,60}$/.test(tag))throw Error('acceptance_id_required');
 const root=resolve('.local/watch-acceptance',tag),runs=JSON.parse(await readFile(join(root,'run-location.json'),'utf8')).runs;
 assert.equal(await realpath(runs),runs);assert.ok(runs.startsWith(resolve(process.env.WATCH_RUNS_PARENT||'.local/w')+'/'));
-const ids=await readdir(runs);assert.equal(ids.length,1);const id=ids[0];assert.match(id,/^[a-f0-9-]{36}$/);
+const ids=(await readdir(runs)).filter(id=>/^[a-f0-9-]{36}$/.test(id));assert.equal(ids.length,1);const id=ids[0];
 const dir=join(runs,id),queue=join(dir,'repo'),configDir=join(dir,'config');
 process.env.TAKT_CONFIG_DIR=configDir;
 const runtime=resolve('runtime/takt');

@@ -19,7 +19,8 @@ export function validateWatchStorage(clones:string){
  if(Buffer.byteLength(clones,'utf8')+1+80+57>255)throw Error('watch_storage_path_too_long');
 }
 
-export async function executeWatch(config:TaktConfig,worktree:string,baseSha:string,owner:string,order:WatchOrder,signal:AbortSignal,deadline:bigint){
+export {executeWatch} from './watch-execution.ts';
+export async function runWatchExecution(config:TaktConfig,worktree:string,baseSha:string,owner:string,order:WatchOrder,signal:AbortSignal,deadline?:bigint){
  order=watchOrder(order);
  for(const p of [config.taktRuntime,config.taktInputs,config.taktRuns,config.codexPackage,config.authFile,config.dependencies])if(resolve(p)!==p||await realpath(p)!==p)throw Error('untrusted_watch_path');
  const runRoot=join(config.taktRuns,order.id),root=join(runRoot,'repo'),clones=join(runRoot,'clones'),configDir=join(runRoot,'config'),privateDir=join(runRoot,'private');
@@ -27,20 +28,21 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
  await mkdir(runRoot,{mode:0o700});for(const p of [root,clones,configDir,privateDir,join(runRoot,'empty-git'),join(runRoot,'codex-state')])await mkdir(p,{mode:0o700});
  await verifyWatchRuntime(config.taktRuntime,root,configDir);
  const env={PATH:'/usr/bin:/bin',HOME:configDir,LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'};
- const git=(args:string[],cwd=root)=>processOutput('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false',...args],cwd,'',signal,deadline,env);
+ const commandDeadline=()=>deadline??process.hrtime.bigint()+60000000000n;
+ const git=(args:string[],cwd=root)=>processOutput('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false',...args],cwd,'',signal,commandDeadline(),env);
  await git(['init','--initial-branch='+order.baseRef]);await git(['fetch','--no-tags',worktree,baseSha]);await git(['reset','--hard',baseSha]);
  await git(['config','user.name','PrivateAgent watch']);await git(['config','user.email','watch@localhost']);
  const origin=(await git(['remote','get-url','origin'],worktree)).trim();await git(['remote','add','origin',origin]);
- await processOutput(process.execPath,[fileURLToPath(new URL('./watch-runtime-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir,clones,order.workflow],root,'',signal,deadline,env);
+ await processOutput(process.execPath,[fileURLToPath(new URL('./watch-runtime-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir,clones,order.workflow],root,'',signal,commandDeadline(),env);
  const compiled=JSON.parse(await readFile(join(configDir,'watch-compiled.json'),'utf8'));
- const task=orderText(order),client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);
+ const task=orderText(order);let client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);
  const supervisor=new WatchSupervisor(join(runRoot,'supervisor.db'));let started=false,stopped=false;
  let cancellation:Promise<void>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
  const cancelNow=()=>{if(started&&!stopped&&!cancellation)cancellation=supervisor.cancel(owner,root).then(()=>{stopped=true;}).catch(()=>{throw Error('watch_stop_unconfirmed');});cancellation?.catch(()=>{});};
  try{
   const queued=await client.enqueue({task,workflow:order.workflow,worktree:true,autoPr:false,taskContext:{baseBranch:order.baseRef}});
-  const policy={root,clones,taskName:queued.taskName,marker:orderMarker(order),workflow:order.workflow,maxCalls:config.maxProviderCalls??60};
-  if(!Number.isSafeInteger(policy.maxCalls)||policy.maxCalls<1||policy.maxCalls>60)throw Error('invalid_provider_call_limit');
+  const policy={root,clones,taskName:queued.taskName,marker:orderMarker(order),workflow:order.workflow,maxCalls:config.maxProviderCalls??null,callMs:config.watchLimits?.callMs??null};
+  if(policy.maxCalls!==null&&(!Number.isSafeInteger(policy.maxCalls)||policy.maxCalls<1))throw Error('invalid_provider_call_limit');
   await writeFile(join(privateDir,'provider-policy.json'),JSON.stringify(policy),{mode:0o600,flag:'wx'});
   const here=fileURLToPath(new URL('.',import.meta.url));
   const args=['--unshare-user','--unshare-pid','--die-with-parent','--new-session','--unshare-ipc','--unshare-uts','--cap-drop','ALL','--clearenv',
@@ -55,20 +57,27 @@ export async function executeWatch(config:TaktConfig,worktree:string,baseSha:str
    '--setenv','PATH','/usr/bin:/bin','--setenv','LANG','C.UTF-8','--setenv','TAKT_NO_TTY','1','--setenv','NO_UPDATE_NOTIFIER','1','--chdir',root,
    '--','/usr/bin/node','/opt/takt-runtime/node_modules/takt/dist/app/cli/index.js','watch'];
   for(const name of ['config.yaml','runtime.yaml'])args.splice(args.indexOf('--chdir'),0,'--ro-bind',join(configDir,name),join(configDir,name));
-  if(signal.aborted||process.hrtime.bigint()>=deadline)throw Error('cancelled_or_deadline');
+  if(signal.aborted||(deadline!==undefined&&process.hrtime.bigint()>=deadline))throw Error('cancelled_or_deadline');
   await supervisor.start(owner,{file:'/usr/bin/bwrap',args,cwd:root,env});started=true;
-  signal.addEventListener('abort',cancelNow,{once:true});timer=setTimeout(cancelNow,Math.max(0,Number(deadline-process.hrtime.bigint())/1e6));if(signal.aborted)cancelNow();
+  signal.addEventListener('abort',cancelNow,{once:true});if(deadline!==undefined)timer=setTimeout(cancelNow,Math.max(0,Number(deadline-process.hrtime.bigint())/1e6));if(signal.aborted)cancelNow();
   for(;;){
-   if(signal.aborted||process.hrtime.bigint()>=deadline)throw Error('cancelled_or_deadline');
+   if(signal.aborted||(deadline!==undefined&&process.hrtime.bigint()>=deadline))throw Error('cancelled_or_deadline');
    if(supervisor.status(owner,root)?.observed!=='alive')throw Error('watch_exited_before_completion');
-   const tasks=await client.list();if(tasks.length!==1||tasks[0].name!==queued.taskName||tasks[0].summary!==policy.marker)throw Error('watch_task_identity_changed');
+   let tasks;
+   try{tasks=await client.list();}catch{
+    // MCPだけを再接続する。応答不明なenqueueを再送したりwatchを止めたりしない。
+    await client.close().catch(()=>{});await new Promise(r=>setTimeout(r,250));
+    try{client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);}catch{}
+    continue;
+   }
+   if(tasks.length!==1||tasks[0].name!==queued.taskName||tasks[0].summary!==policy.marker)throw Error('watch_task_identity_changed');
    if(tasks[0].status==='completed')break;
    if(!['pending','running'].includes(tasks[0].status))throw Error('watch_task_failed');
    await new Promise(r=>setTimeout(r,250));
   }
   await supervisor.stop(owner,root,10000);stopped=true;
   const completed=await client.list();if(completed.length!==1||!completed[0].runSlug)throw Error('watch_completion_mismatch');
-  const binding=JSON.parse(await processOutput(process.execPath,[fileURLToPath(new URL('./watch-run-binding.mjs',import.meta.url)),config.taktRuntime,root,configDir,clones,queued.taskName,completed[0].runSlug,order.workflow],root,task,signal,deadline,env));
+  const binding=JSON.parse(await processOutput(process.execPath,[fileURLToPath(new URL('./watch-run-binding.mjs',import.meta.url)),config.taktRuntime,root,configDir,clones,queued.taskName,completed[0].runSlug,order.workflow],root,task,signal,commandDeadline(),env));
   const expectedTask=binding.executionTask;
   const clone=binding.clone,headSha=(await git(['rev-parse','HEAD'],clone)).trim();
   if((await git(['rev-parse','refs/heads/'+binding.branch])).trim()!==headSha||(await git(['status','--porcelain'],clone)).trim())throw Error('watch_head_mismatch');

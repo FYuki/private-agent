@@ -2,6 +2,8 @@
 
 Agent基盤から固定版 TAKT 0.68.0（既存pin `6f4abf66c795f4c1a05ee0edb11cacaa0d1a475c`）のMCP／watchを管理する接続部。workflow・stage engine・reviewer・ループは公式TAKTを使い、PrivateAgent側で再実装しない。既存pipeline workerと本番serviceは変更していない。
 
+2026-10-07の寿命分離とhost管理者向け追加指示は [現在の実行契約](takt-watch-lifetime.md) を参照。以下は初期sliceの履歴で、現在はMCP/observer切断で実行を停止せず、既存runへ再接続できる。
+
 ## 実装・検証済み
 
 - `WatchManager` は既存repository registryでowner/repo/rootを束縛する。callerがcwd・argv・公開権限をtask本文に含めても採用しない。

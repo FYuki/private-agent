@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable,Writable} from 'node:stream';
@@ -21,6 +21,15 @@ test('watch alone accepts verified Sol 6.1 xhigh without changing legacy profile
  const args=['exec','--model','gpt-6.1-sol','-c','model_reasoning_effort="xhigh"'];
  assert.equal(codexArgs(args,true).model,'gpt-6.1-sol');assert.throws(()=>codexArgs(args),/profile_denied/);
  assert.throws(()=>codexArgs([...args,'-c','model_reasoning_effort="medium"'],true),/profile_denied/);
+});
+
+test('normal watch is not stopped at the former 60 CLI acceptance limit',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'watch-unlimited-'));
+ const history=Array.from({length:60},(_,i)=>[{id:String(i),event:'started'},{id:String(i),event:'closed'}]).flat();
+ await writeFile(join(directory,'activity.ndjson'),history.map(x=>JSON.stringify(x)).join('\n')+'\n');
+ await parallelRun({directory,file:process.execPath,args:['-e',''],env:{},stdin:Readable.from([]),stdout:new Writable({write(_c,_e,done){done();}})});
+ const events=(await readFile(join(directory,'activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
+ verifyProviderSettlement(events);assert.equal(events.filter(x=>x.event==='started').length,61);
 });
 
 import {validateWatchStorage} from '../development/watch-adapter.ts';

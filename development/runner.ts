@@ -1,4 +1,5 @@
 import {executeWatch} from './watch-adapter.ts';
+import {cancelWatchExecution,watchExecutionSettled} from './watch-execution.ts';
 import type {CommitRangeProof} from './commit-range.ts';
 import { mkdir,readFile,lstat,realpath } from 'node:fs/promises';
 import { resolve,join } from 'node:path';
@@ -21,7 +22,7 @@ export interface ReadOnlyReviewer {review(input:{baseSha:string;headSha:string;d
 
 export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,config:DevelopmentRunnerConfig,signal:AbortSignal,deadline:bigint){
  const spec=developmentInput(run.development),id=run.job_id;
- // フレームワーク選定のため停止。成功→artifact契約が未検証なので通常runnerから実行しない。
+ // 実モデルでの成功→artifact受入前は通常runnerを有効化しない。
  if(spec.executionProfileId==='takt-watch')throw Error('watch_runtime_validation_pending');
  if(!/^[a-f0-9-]{36}$/.test(id))throw Error('invalid_task');
  const binding=selectRepository(config.registry??[{repoId:'private-agent',root:config.repository,worktrees:config.worktrees,owners:[run.owner],visibility:config.repositoryVisibility??'private',publishAuthorized:config.publishAuthorized}],spec.repoId,run.owner);
@@ -64,10 +65,11 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
  let watchResult:{headSha:string;commitRange:CommitRangeProof}|undefined;
  if(spec.executionProfileId==='takt-watch'){
   if(!config.takt||!config.watchEnabled||!spec.watch)throw Error('watch_not_configured');
-  const result=await operation(ledger,'takt',{profile:spec.executionProfileId,spec,base:prepared.baseSha},async()=>{
+  const observe=async()=>{
    const executed=await executeWatch(config.takt!,directory,prepared.baseSha,run.owner,{id,repoId,issue:spec.watch!.issue,requirements:pathInstruction+' '+validationInstruction+' Task data: '+spec.goal,acceptance:spec.acceptanceCriteria,validation:spec.watch!.validation,dependencies:spec.watch!.dependencies,workflow:spec.watch!.workflow,baseRef:spec.baseRef},signal,deadline);
    return {...executed,contentHash:await snapshot()};
-  });
+  };
+  const result=await operation(ledger,'takt',{profile:spec.executionProfileId,spec,base:prepared.baseSha},observe,observe);
   review={manifestHash:result.manifestHash,contentHash:result.contentHash};watchResult={headSha:result.headSha,commitRange:result.commitRange};
  }else
  if(spec.executionProfileId==='takt-simple'){
@@ -122,10 +124,12 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
 export async function developmentOnce(api:ReturnType<typeof client>,config:DevelopmentRunnerConfig,stop:AbortSignal){
  if(config.watchEnabled)throw Error('watch_runtime_validation_pending');
  const started=process.hrtime.bigint(),run=await api('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:config.watchEnabled?'takt-watch':config.takt?'takt-simple':'edit-codex-luna'}) as Run|null;if(!run)return false;
- const deadline=executionDeadline(started,run),abort=new AbortController(),signal=AbortSignal.any([stop,abort.signal]);let busy=false;
- const heartbeat=setInterval(async()=>{if(busy)return;busy=true;try{await api('/api/runs/'+run.id+'/heartbeat',{token:run.token});}catch{abort.abort();}finally{busy=false;}},LIMITS.heartbeatMs);
+ const watch=run.development?.executionProfileId==='takt-watch';
+ // watchの期限は一回の監視セッションだけに使う。TAKTの実行所有者へは渡さない。
+ const deadline=watch?started+BigInt(run.budget_ms!)*1000000n:executionDeadline(started,run),abort=new AbortController(),signal=AbortSignal.any([stop,abort.signal]);let busy=false;
+ const heartbeat=setInterval(async()=>{if(busy)return;busy=true;try{const status=await api('/api/runs/'+run.id+'/heartbeat',{token:run.token});if(watch&&(status as {cancelRequested?:boolean}).cancelRequested)await cancelWatchExecution(config.takt!,run.job_id,run.owner);}catch{abort.abort();}finally{busy=false;}},LIMITS.heartbeatMs);
  const timer=setTimeout(()=>abort.abort(),Math.max(0,Number(deadline-process.hrtime.bigint())/1e6));let result:string|null=null,error:string|null=null;
- try{result=await executeDevelopment(run,api,config,signal,deadline);}catch(e){if(e instanceof Error&&['watch_stop_unconfirmed','provider_stop_unconfirmed'].includes(e.message))throw e;error=signal.aborted?'cancelled':'operation_blocked';}finally{clearInterval(heartbeat);clearTimeout(timer);}
+ try{result=await executeDevelopment(run,api,config,signal,deadline);}catch(e){if(watch&&!await watchExecutionSettled(config.takt!,run.job_id,run.owner)||e instanceof Error&&['watch_stop_unconfirmed','provider_stop_unconfirmed'].includes(e.message))throw e;error=signal.aborted?'cancelled':'operation_blocked';}finally{clearInterval(heartbeat);clearTimeout(timer);}
  // processOutput はcloseを待つ。停止確認前に占有枠を解放しない。
  for(let i=0;i<2;i++){try{await api('/api/runs/'+run.id+'/complete',{token:run.token,result,error});break;}catch{if(i===1)throw Error('completion_unconfirmed');}}
  return true;

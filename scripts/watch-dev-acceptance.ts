@@ -13,6 +13,7 @@ import {saveArtifact,finishArtifact} from '../development/artifacts.ts';
 import {fingerprint,operation,type Ledger} from '../development/operations.ts';
 import {sandboxArgs} from '../development/sandbox.ts';
 import {processOutput} from '../development/process.ts';
+import {cancelWatchExecution,watchExecutionSettled} from '../development/watch-execution.ts';
 import {watchAcceptanceRuns,verifyAcceptanceRuntime} from '../development/watch-dev-preflight.ts';
 // @ts-ignore dependency-free provider settlement boundary
 import {verifyProviderSettlement} from '../development/watch-provider-budget.mjs';
@@ -41,7 +42,7 @@ if(stub){
  await writeFile(join(root,'stub/bin/codex.js'),"if(process.argv.slice(2).join(' ')==='login status'){process.stdout.write('synthetic login\\n');}else{process.stderr.write('synthetic_provider_failure\\n');process.exitCode=7;}");
  await writeFile(join(root,'stub-auth.json'),'{"fixture":true}',{mode:0o600});
 }
-const config={taktRuntime:resolve('runtime/takt'),taktInputs:input,taktRuns:runs,codexPackage:await realpath(stub?join(root,'stub'):process.env.CODEX_PACKAGE!),authFile:await realpath(stub?join(root,'stub-auth.json'):process.env.CODEX_AUTH_FILE!),dependencies:resolve('node_modules'),maxProviderCalls:maxCli};
+const config={taktRuntime:resolve('runtime/takt'),taktInputs:input,taktRuns:runs,codexPackage:await realpath(stub?join(root,'stub'):process.env.CODEX_PACKAGE!),authFile:await realpath(stub?join(root,'stub-auth.json'):process.env.CODEX_AUTH_FILE!),dependencies:resolve('node_modules'),maxProviderCalls:maxCli,watchLimits:{callMs:300000,wallMs:budgetMs}};
 const stop=new AbortController(),deadline=process.hrtime.bigint()+BigInt(budgetMs)*1000000n;
 const command=(file:string,args:string[],cwd=repo)=>processOutput(file,args,cwd,'',stop.signal,deadline,{PATH:'/usr/bin:/bin',LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_TERMINAL_PROMPT:'0'});
 const git=(args:string[])=>command('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-c','user.name=Acceptance','-c','user.email=acceptance@localhost',...args]);
@@ -75,7 +76,7 @@ try{
  await api('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-watch'});
  run=await api('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}) as Run;assert.equal(run.job_id,id);
  await git(['switch','-c','feature/development-task-'+id]);
- const leased=run;heartbeat=setInterval(()=>{void api('/api/runs/'+leased.id+'/heartbeat',{token:leased.token}).catch(()=>stop.abort());},10000);
+ const leased=run;heartbeat=setInterval(()=>{void api('/api/runs/'+leased.id+'/heartbeat',{token:leased.token}).then(async state=>{if((state as {cancelRequested?:boolean}).cancelRequested)await cancelWatchExecution(config,leased.job_id,'local');}).catch(()=>stop.abort());},10000);
  const ledger:Ledger=(name,fingerprint,result)=>api('/api/development/tasks/'+id+'/operation',{token:leased.token,name,fingerprint,...(result===undefined?{}:{result})}) as ReturnType<Ledger>;
  await writeFile(join(root,'request.json'),JSON.stringify({id,spec,inputHash,budgetMs,maxCli,callWallMs:300000,stub,publication:false},null,2),{mode:0o600});
  console.log(JSON.stringify({phase:'claimed',id,jobResources:compiled.jobResources,inputHash,budgetMs,maxCli,callWallMs:300000,stub,publication:false}));
@@ -97,7 +98,7 @@ try{
  console.log(JSON.stringify({phase:'succeeded',task:id,artifactId:artifact.artifactId}));
 }catch(e){
  const error=(e as Error).message;await writeFile(join(root,'failure.json'),JSON.stringify({error,task:run?.job_id,inputHash,modelSuccess:false}));
- if(run&&!['watch_stop_unconfirmed','provider_stop_unconfirmed'].includes(error))await api('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'operation_blocked'}).catch(()=>{});
+ if(run&&await watchExecutionSettled(config,run.job_id,'local'))await api('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'operation_blocked'}).catch(()=>{});
  throw e;
 }finally{
  clearInterval(heartbeat);stop.abort();

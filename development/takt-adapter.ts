@@ -6,7 +6,7 @@ import {sandboxArgs,type SandboxConfig} from './sandbox.ts';
 import {processOutput} from './process.ts';
 import {hash,resourcePlan,acceptedResult,TAKT_PIN,type Runtime} from './takt-contract.ts';
 
-export type TaktConfig=SandboxConfig&{taktRuntime:string;taktInputs:string;taktRuns:string;maxProviderCalls?:number};
+export type TaktConfig=SandboxConfig&{taktRuntime:string;taktInputs:string;taktRuns:string;maxProviderCalls?:number;watchLimits?:{callMs?:number;wallMs?:number}};
 const env={PATH:'/usr/bin:/bin',LANG:'C.UTF-8'};
 /** 同一runの再実行はしない。中断時のTAKT保存ファイルは保持し、人による新規taskを待つ。 */
 export async function executeTakt(config:TaktConfig,worktree:string,task:string,baseSha:string,id:string,signal:AbortSignal,deadline:bigint,onProgress?:(stage:string,iteration:number)=>Promise<unknown>){

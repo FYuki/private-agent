@@ -1,5 +1,7 @@
 # watch runtime 開発停止点と再開状況（2026-10-05）
 
+2026-10-07：本人が[実行寿命の分離](takt-watch-lifetime.md)の修正・確認をmain向けPRまで進めることを指示。下記の「main/epicへこのスライスをマージしない」は過去の停止点であり、このPR準備を禁止する現在の指示ではない。本番有効化とmain mergeは行わない。
+
 現在のジョブ枠・並列CLI・6.1 Sol契約とdev受入は [takt-watch-dev-acceptance.md](takt-watch-dev-acceptance.md) を参照。以下の未対応・直列化の記述は前slice時点の記録。通常runnerのガードは現在も維持する。
 
 再開指示によりadapter v3の公式run bindingを移植済み。下記P1のtask照合不一致は修正し、合成公式readerで検証した。現在の証拠と残事項は [取り込み記録](takt-watch-adapter-integration.md) を参照。通常runnerの実稼働入口は、全体成功試験と設定契約の確認まで閉じている。

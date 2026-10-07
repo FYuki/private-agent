@@ -70,3 +70,31 @@ test('watch cancellation and deadline expiry retain reservations until original 
   }finally{db.db.close();}
  }
 });
+
+test('delegated watch survives six hours without observer heartbeat and resumes the same token without a second attempt',async()=>{
+ const {db,dev,store,claim,advance}=setup();try{
+  await dev.submit('a','long',{...input,budgetMs:60000});const run=(await claim())!;
+  await dev.operation('a','w',run.job_id,run.token!,'takt','a'.repeat(64));
+  advance(6*60*60*1000);await store.reap('a');
+  assert.equal((await dev.status('a',run.job_id)).state,'running');
+  assert.equal(await claim('a','other'),null);
+  const resumed=(await claim())!;assert.equal(resumed.id,run.id);assert.equal(resumed.token,run.token);assert.equal(resumed.attempt,1);
+  assert.equal(db.db.prepare('SELECT COUNT(*) n FROM attempts').get()!.n,1);
+  await store.heartbeat('a','w',run.id,run.token!);
+  await dev.operation('a','w',run.job_id,run.token!,'takt','a'.repeat(64),'{}');
+  await store.finish('a','w',run.id,run.token!,'local-only-result',null);
+  assert.equal((await dev.status('a',run.job_id)).state,'succeeded');
+ }finally{db.db.close();}
+});
+
+test('delegated cancellation is explicit and retains hold until the original execution acknowledges stop',async()=>{
+ const {db,dev,store,claim,advance}=setup();try{
+  await dev.submit('a','long',input);const run=(await claim())!;
+  await dev.operation('a','w',run.job_id,run.token!,'takt','a'.repeat(64));
+  advance(6*60*60*1000);await store.cancel('a',run.id);
+  assert.equal((await store.heartbeat('a','w',run.id,run.token!)).cancelRequested,true);
+  assert.equal((await claim())!.state,'cancelled');
+  await assert.rejects(store.heartbeat('a','foreign',run.id,run.token!),/lease_lost/);
+  await store.finish('a','w',run.id,run.token!,null,'stopped');assert.equal(await claim(),null);
+ }finally{db.db.close();}
+});
