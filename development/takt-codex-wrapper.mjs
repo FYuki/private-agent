@@ -7,7 +7,7 @@ export const providerSandboxArgs=command=>['--die-with-parent','--unshare-user',
 
 // TAKT SDKのcleanupはkill後のcloseを待たないため、この境界で重複起動を拒否する。
 // 異常終了で残ったlockは自動解除しない。新しいrunには新しいprivate directoryを使う。
-export function codexArgs(argv) {
+export function codexArgs(argv, watch = false) {
  if (argv[0] !== 'exec') throw Error('exec_required');
  const args = ['exec','--ignore-user-config','--ignore-rules','--skip-git-repo-check'];
  let model, effort, role='plan', resume;
@@ -29,7 +29,7 @@ export function codexArgs(argv) {
   }
   throw Error('cli_argument_denied');
  }
- if(!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh'].includes(model+':'+effort))throw Error('profile_denied');
+ if(!['gpt-6-sol:medium','gpt-6-sol:xhigh','gpt-6-luna:xhigh',...(watch?['gpt-6.1-sol:xhigh']:[])].includes(model+':'+effort))throw Error('profile_denied');
  args.push('--model',model,'--json','--cd','/workspace');
  configs.push(`model_reasoning_effort="${effort}"`,'default_permissions="development"',
   `permissions.development.filesystem={"/"="read","/workspace"="${role==='edit'?'write':'read'}","/tmp"="write","/home/runner/.codex"="deny","/proc"="deny","/run-private"="deny","/workspace/.takt"="read","/takt-config"="deny"}`,
@@ -40,10 +40,18 @@ export function codexArgs(argv) {
  return {args,model,effort};
 }
 
-export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=120,callMs=1200000,idleMs=600000,signal,stdin=process.stdin,stdout=process.stdout,stderr}) {
+export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=120,callMs=1200000,idleMs=600000,signal,queueMs=0,stdin=process.stdin,stdout=process.stdout,stderr}) {
  if(!Number.isSafeInteger(maxCalls)||maxCalls<1||maxCalls>120)throw Error('invalid_provider_call_limit');
+ if(!Number.isSafeInteger(queueMs)||queueMs<0||queueMs>1200000)throw Error('invalid_provider_queue_limit');
+ const until=Date.now()+queueMs;
  let fd;
- try {fd=openSync(lock,'wx',0o600);}catch{throw Error('previous_provider_stop_unconfirmed');}
+ for(;;){
+  if(signal?.aborted)throw Error('provider_cancelled');
+  try{fd=openSync(lock,'wx',0o600);break;}catch(e){
+   if(e.code!=='EEXIST'||Date.now()>=until)throw Error('previous_provider_stop_unconfirmed');
+   await new Promise(resolve=>setTimeout(resolve,20));
+  }
+ }
  closeSync(fd);
  let count=0;try{count=readFileSync(activity,'utf8').split('\n').filter(l=>l&&JSON.parse(l).event==='started').length;}catch(e){if(e.code!=='ENOENT')throw e;}
  if(count>=maxCalls)throw Error('provider_call_limit');
@@ -54,8 +62,8 @@ export async function guardedRun({file,args,lock,activity,env,profile,maxCalls=1
   const kill=sig=>{try{if(child.pid)process.kill(-child.pid,sig);}catch{}};
   let escalation;
   const stop=()=>{if(failed)return;failed=true;kill('SIGINT');escalation=setTimeout(()=>kill('SIGKILL'),2000);};
-  const touch=()=>{clearTimeout(idle);idle=setTimeout(stop,idleMs);};
-  const hard=setTimeout(stop,callMs);touch();mark('started');
+  const touch=()=>{clearTimeout(idle);if(idleMs!==null)idle=setTimeout(stop,idleMs);};
+  const hard=callMs===null?undefined:setTimeout(stop,callMs);touch();mark('started');
   signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();
   const sig=()=>stop();process.on('SIGINT',sig);process.on('SIGTERM',sig);
   child.stdin.on('error',()=>{});stdin.pipe(child.stdin);

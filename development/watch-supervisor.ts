@@ -7,9 +7,10 @@ import {prepareDatabaseFile} from '../agent/store.ts';
 
 export type WatchProcess={file:string;args:string[];cwd:string;env:Record<string,string>};
 type WatchRow={root:string;owner:string;token:string;state:string;pid:number|null;identity:string|null;contained:number};
-function identity(pid:number){
+export function watchProcessIdentity(pid:number){
  try{const stat=readFileSync('/proc/'+pid+'/stat','utf8'),fields=stat.slice(stat.lastIndexOf(')')+2).split(' ');return readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()+':'+fields[19];}catch{return null;}
 }
+const identity=watchProcessIdentity;
 function groupAlive(pid:number){try{process.kill(-pid,0);return true;}catch(e){if((e as NodeJS.ErrnoException).code==='ESRCH')return false;throw e;}}
 /** host内部専用。HTTP/MCPからcommandを受け付けない。開始不明や子孫生存時は再起動しない。 */
 export class WatchSupervisor {
@@ -43,8 +44,8 @@ export class WatchSupervisor {
   // 異なる管理DBで同じrootを指定しても二重watchにならない。stale lockは自動解除しない。
   try{writeFileSync(lock,token,{flag:'wx',mode:0o600});}catch{throw Error('watch_root_already_reserved');}
   const child=spawn(spec.file,spec.args,{cwd:root,env:spec.env,shell:false,detached:true,stdio:['ignore','pipe','pipe']});this.children.set(root,child);
-  let bytes=0;
-  for(const stream of [child.stdout,child.stderr])stream?.on('data',b=>{bytes+=b.length;if(bytes>1024*1024&&child.pid){try{process.kill(-child.pid,'SIGKILL');}catch{}}});
+  // 監視用出力は蓄積せず排出する。累積ログ量を長時間TAKTの停止条件にしない。
+  child.stdout?.resume();child.stderr?.resume();
   child.on('close',()=>{
    // child closeだけではsetsid等の子孫消滅を証明できない。実配置はPID namespace必須。
    const stopped=contained&&child.pid&&!groupAlive(child.pid);
@@ -55,6 +56,22 @@ export class WatchSupervisor {
   const pid=child.pid!,proof=identity(pid);if(!proof)throw Error('watch_start_unconfirmed');
   this.db.prepare("UPDATE watch_supervisors SET state='running',pid=?,identity=? WHERE root=? AND token=? AND state='starting'").run(pid,proof,root,token);
   return this.status(owner,root)!;
+ }
+ /** cancelはdrainと区別する。自分が所有するPID namespaceのcloseだけを停止証明にする。 */
+ async cancel(owner:string,root:string,waitMs=10000){
+  if(!Number.isSafeInteger(waitMs)||waitMs<10||waitMs>30000)throw Error('invalid_stop_timeout');
+  const row=this.status(owner,root);if(!row)throw Error('watch_not_found');
+  if(row.observed==='exited')return row;
+  const child=this.children.get(root);
+  if(!row.contained||!child||child.pid!==row.pid||!row.pid||!row.identity||identity(row.pid)!==row.identity)throw Error('watch_stop_unconfirmed');
+  this.db.prepare("UPDATE watch_supervisors SET state='cancelling' WHERE root=? AND token=?").run(root,row.token);
+  process.kill(-row.pid,'SIGKILL');
+  const until=Date.now()+waitMs;
+  while(Date.now()<until){
+   if(!this.children.has(root)){const result=this.status(owner,root);if(result?.observed==='exited')return result;throw Error('watch_stop_unconfirmed');}
+   await new Promise(r=>setTimeout(r,20));
+  }
+  throw Error('watch_stop_unconfirmed');
  }
  async stop(owner:string,root:string,waitMs=10000){
   if(!Number.isSafeInteger(waitMs)||waitMs<10||waitMs>30000)throw Error('invalid_stop_timeout');

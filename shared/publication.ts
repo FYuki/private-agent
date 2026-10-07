@@ -16,11 +16,16 @@ export function publicationInput(value:unknown):PublicationInput{
 /** Verify the original immutable local-only manifest before granting a separate publication. */
 export async function publicationArtifact(value:unknown,owner:string,input:PublicationInput){
  const v=object(value);const {artifactId,outcome,review,...manifest}=v;
- exact(manifest,['version','taskId','owner','repoId','baseRef','baseSha','headSha','branch','contentHash','validation','checks','mode','execution']);
+ exact(manifest,['version','taskId','owner','repoId','baseRef','baseSha','headSha','branch','contentHash','validation','checks','mode','execution','commitRange']);
  const policy=repositoryPolicy(input.repoId);
  if(artifactId!==input.artifactId||await digest(manifest)!==artifactId||manifest.version!==1||manifest.mode!=='local_only'||
    manifest.owner!==owner||manifest.taskId!==input.taskId||manifest.repoId!==input.repoId||manifest.headSha!==input.headSha||manifest.baseRef!==input.baseRef||manifest.baseSha!==input.baseSha||
    manifest.branch!==repositoryBranch(input.repoId,input.taskId)||manifest.validation!==policy.validation||JSON.stringify(manifest.checks)!==JSON.stringify(validationCommands(input.repoId)))throw new Fault(409,'artifact_approval_mismatch');
  sha(manifest.contentHash,64);
- return {...manifest,artifactId} as typeof manifest&{artifactId:string;branch:string;contentHash:string};
+ if(manifest.commitRange!==undefined){
+  const range=object(manifest.commitRange);exact(range,['version','commits','digest']);
+  if(range.version!==1||!Array.isArray(range.commits)||range.commits.length<1||range.commits.length>120||new Set(range.commits).size!==range.commits.length||range.commits.at(-1)!==input.headSha)throw new Fault(409,'invalid_commit_range');
+  range.commits.forEach(c=>sha(c));sha(range.digest,64);
+ }
+ return {...manifest,artifactId} as typeof manifest&{artifactId:string;branch:string;contentHash:string;commitRange?:{version:1;commits:string[];digest:string}};
 }

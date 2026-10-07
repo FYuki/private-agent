@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {WatchStore} from '../development/watch-store.ts';
@@ -79,4 +80,19 @@ test('late collected response cannot overwrite validated evidence',async()=>{
  const pending=store.reconcile('a',id,'local-GPT-live',slow);await new Promise(r=>setImmediate(r));
  await store.validate('a',id,async()=>({artifactId:'a'.repeat(64),headSha:'b'.repeat(40)}));release();await pending;
  assert.equal(store.status('a',id).state,'validated');assert.equal(store.status('a',id).result.headSha,'b'.repeat(40));store.close();
+});
+
+test('cancel kills a PID namespace including a detached SIGINT-resistant descendant',async(t)=>{
+ if(spawnSync('/usr/bin/bwrap',['--unshare-user','--unshare-pid','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--','/usr/bin/true'],{stdio:'ignore'}).status!==0){t.skip('PID namespace unavailable; real WSL proof runs separately');return;}
+ const dir=await mkdtemp(join(tmpdir(),'watch-cancel-')),file=join(dir,'writes'),supervisor=new WatchSupervisor(join(dir,'state.db'));
+ const descendant=`process.on('SIGINT',()=>{});setInterval(()=>require('fs').appendFileSync(${JSON.stringify(file)},'x'),10)`;
+ const code=`process.on('SIGINT',()=>{});require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'});setInterval(()=>{},1000)`;
+ const spec={file:'/usr/bin/bwrap',args:['--unshare-user','--unshare-pid','--unshare-net','--die-with-parent','--new-session','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--bind',dir,dir,'--','/usr/bin/node','-e',code],cwd:dir,env:{PATH:'/usr/bin:/bin'}};
+ await supervisor.start('a',spec);
+ try{
+  let ready=false;for(let i=0;i<100;i++){try{ready=(await readFile(file,'utf8')).length>0;if(ready)break;}catch{}await new Promise(r=>setTimeout(r,20));}assert.equal(ready,true);
+  await assert.rejects(supervisor.cancel('foreign',dir),/not_found/);
+  const stopped=await supervisor.cancel('a',dir);assert.equal(stopped.observed,'exited');
+  const bytes=await readFile(file,'utf8');await new Promise(r=>setTimeout(r,100));assert.equal(await readFile(file,'utf8'),bytes);
+ }finally{if(supervisor.status('a',dir)?.observed==='alive')await supervisor.cancel('a',dir);supervisor.close();}
 });
