@@ -32,6 +32,7 @@ async function snapshot(){
 const before=await snapshot(),snapshotHash=fingerprint(before),testDir=join(root,'host-validation');await mkdir(testDir,{mode:0o700});
 for(const p of ['shared','tests','node_modules'])await mkdir(join(testDir,p));await writeFile(join(testDir,'.git'),'');
 for(const [file,text]of Object.entries(before))await writeFile(join(testDir,file),text);
+if(!process.env.CODEX_PACKAGE||!process.env.CODEX_AUTH_FILE)throw Error('explicit_codex_paths_required');
 const config={codexPackage:await realpath(process.env.CODEX_PACKAGE!),authFile:await realpath(process.env.CODEX_AUTH_FILE!),dependencies:resolve('node_modules')};
 for(const argv of [['/usr/bin/npm','run','check'],['/usr/bin/npm','test'],['/usr/bin/node','--input-type=module','-e',"import assert from 'node:assert/strict';import {greeting} from './shared/greeting.js';for(const [x,y] of [['Ada','Hello, Ada'],[' Ada ','Hello, Ada'],[undefined,'Hello, world'],['','Hello, world'],['  ','Hello, world']])assert.equal(greeting(x),y);"]])await command('/usr/bin/bwrap',sandboxArgs(config,testDir,'test',argv),testDir);
 assert.equal(fingerprint(await snapshot()),snapshotHash);

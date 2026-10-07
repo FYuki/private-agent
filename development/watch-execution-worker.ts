@@ -7,7 +7,8 @@ import {watchProcessIdentity} from './watch-supervisor.ts';
 
 const directory=process.argv[2];
 const request:WatchExecutionRequest=JSON.parse(await readFile(join(directory,'request.json'),'utf8'));
-await writeFile(join(directory,'process.json'),JSON.stringify({pid:process.pid,identity:watchProcessIdentity(process.pid)}),{flag:'wx',mode:0o600});
+await writeFile(join(directory,'process.tmp'),JSON.stringify({pid:process.pid,identity:watchProcessIdentity(process.pid)}),{flag:'wx',mode:0o600});
+await rename(join(directory,'process.tmp'),join(directory,'process.json'));
 const stop=new AbortController();
 const poll=setInterval(()=>{void access(join(directory,'cancel.json')).then(()=>stop.abort()).catch(()=>{});},100);
 process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());

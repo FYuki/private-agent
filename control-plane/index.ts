@@ -11,7 +11,7 @@ import {PublicationStore} from './publication-store.ts';
 import {DEVELOPMENT_DEFAULTS,DEVELOPMENT_PROFILES} from '../shared/development.ts';
 import {repositoryChoices} from '../shared/repositories.ts';
 type Tick={runId:string};
-export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
+export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;WATCH_ACCEPTANCE_ENABLED?:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
 export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
   async run(event:WorkflowEvent<Tick>,step:WorkflowStep){
     return step.do('release-admitted-run',{retries:{limit:2,delay:'1 second',backoff:'constant'},timeout:'10 seconds'},async()=>{
@@ -40,7 +40,7 @@ export default {
    if(req.method==='GET'&&(path==='/development'||path==='/development.js'))return new Response(path==='/development'?developmentHtml:developmentScript,{headers:{...headers,'content-type':path==='/development'?'text/html; charset=utf-8':'text/javascript; charset=utf-8'}});
    const p=await authenticate(req,env.MODE,env.AUTH_JSON),store=new Store(db);
    if(req.headers.get('origin')&&req.headers.get('origin')!==url.origin)throw new Fault(403,'origin_denied');
-   const dev=new DevelopmentStore(store),publications=new PublicationStore(store);
+   const dev=new DevelopmentStore(store,{allowWatchTest:env.MODE==='local'&&env.WATCH_ACCEPTANCE_ENABLED==='true'}),publications=new PublicationStore(store);
    const publication=path.match(/^\/api\/development\/publications\/([a-f0-9-]{36})(?:\/(operation))?$/);
    if(req.method==='GET'&&publication&&!publication[2])return json(await publications.status(p.owner,publication[1]));
    if(req.method==='GET'&&path==='/api/development/config'){

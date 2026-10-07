@@ -15,10 +15,12 @@ console.log(JSON.stringify({officialDefaultAndSimple:true,providerExecuted:false
 // 入力原本を変えず、6.1 Sol planの許可とLuna planのD1契約不一致を検査する。
 const inputs=join(dir,'inputs');await mkdir(inputs);await copyFile('examples/takt/config.yaml',join(inputs,'config.yaml'));
 const original=await readFile('examples/takt/runtime.yaml','utf8');
+assert.ok(original.includes('model: gpt-6-sol'),'model replacement source missing');
 await writeFile(join(inputs,'runtime.yaml'),original.replace('model: gpt-6-sol','model: gpt-6.1-sol'));
 const sol=join(dir,'sol61');await mkdir(sol);
 execFileSync(process.execPath,['development/watch-runtime-prepare.mjs',resolve('runtime/takt'),inputs,sol,join(dir,'clones'),'default'],{stdio:'pipe'});
 assert.ok(JSON.parse(await readFile(join(sol,'watch-compiled.json'),'utf8')).candidates.some((x:any)=>x.model==='gpt-6.1-sol'));
+assert.ok(original.includes('plan:\n        profile: sol-xhigh'),'plan replacement source missing');
 await writeFile(join(inputs,'runtime.yaml'),original.replace('plan:\n        profile: sol-xhigh','plan:\n        profile: luna-xhigh'));
 const luna=join(dir,'luna');await mkdir(luna);
 assert.throws(()=>execFileSync(process.execPath,['development/watch-runtime-prepare.mjs',resolve('runtime/takt'),inputs,luna,join(dir,'clones'),'default'],{stdio:'pipe'}),/plan_job_family_mismatch/);

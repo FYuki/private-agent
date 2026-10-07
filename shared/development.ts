@@ -12,7 +12,7 @@ export const DEVELOPMENT_PROFILES = {
   ],
   executors: [
     { id: 'takt-simple', model: 'gpt-6-sol + gpt-6-luna', capacityKey: 'takt-simple', available: true, reason: null },
-    { id: 'takt-watch', model: 'Sol plan job (gpt-6-sol / gpt-6.1-sol) + internal Sol/Luna', capacityKey: 'takt-watch', available: true, reason: null },
+    { id: 'takt-watch', model: 'Sol plan job (gpt-6-sol / gpt-6.1-sol) + internal Sol/Luna', capacityKey: 'takt-watch', available: false, reason: 'watch_runtime_validation_pending' },
     { id: 'edit-codex-luna', model: 'gpt-6-luna', capacityKey: 'codex-luna', available: true, reason: null },
     { id: 'edit-claude', model: null, capacityKey: null, available: false, reason: 'claude_profile_not_verified' },
   ],
@@ -20,7 +20,7 @@ export const DEVELOPMENT_PROFILES = {
 export type DevelopmentWatch = { issue: number; workflow: 'default'|'simple'; validation: string[]; dependencies: string[] };
 export type DevelopmentInput = { repoId: string; goal: string; baseRef: string; acceptanceCriteria: string[]; orchestratorProfileId: string; executionProfileId: string; budgetMs?: number; watch?: DevelopmentWatch };
 /** GUI/MCP共通の入力境界。選択可能な管理profileとrepo/baseだけを許可し、利用不能はfallbackしない。 */
-export function developmentInput(value: unknown): DevelopmentInput {
+export function developmentInput(value: unknown, options: {allowWatchTest?:boolean} = {}): DevelopmentInput {
   const v = object(value); exact(v, ['repoId', 'goal', 'baseRef', 'acceptanceCriteria', 'orchestratorProfileId', 'executionProfileId', 'budgetMs', 'watch']);
   const repository = repositoryPolicy(v.repoId);
   if (v.baseRef !== repository.baseRef) throw new Fault(400, 'base_ref_not_allowed');
@@ -34,7 +34,7 @@ export function developmentInput(value: unknown): DevelopmentInput {
   for (const [id, profiles] of [[orchestratorProfileId, DEVELOPMENT_PROFILES.orchestrators], [executionProfileId, DEVELOPMENT_PROFILES.executors]] as const) {
     const selected = profiles.find(p => p.id === id);
     if (!selected) throw new Fault(400, 'unknown_development_profile');
-    if (!selected.available) throw new Fault(409, selected.reason!);
+    if (!selected.available && !(selected.id==='takt-watch'&&options.allowWatchTest===true)) throw new Fault(409, selected.reason!);
   }
   let watch: DevelopmentWatch | undefined;
   if (executionProfileId === 'takt-watch') {

@@ -37,5 +37,6 @@
   "inputRuntimeSha256": "89140cbb8d83ca51a94ae3f2e471a219764a79531feb131514468b65a11fcefa",
   "normalRunnerEnabled": false,
   "remotePublication": false,
-  "priorLiveTerminalReasonStillUnknown": true
+  "priorLiveTerminalReasonStillUnknown": true,
+  "evidenceScope": "Historical preparation snapshot at commit dddad29; 124 tests belong to this snapshot, not the later lifetime or review fixes."
 }

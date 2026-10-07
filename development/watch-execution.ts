@@ -1,4 +1,4 @@
-import {mkdir,readFile,writeFile,realpath} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,realpath,rename} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
@@ -23,7 +23,12 @@ export async function observeWatchExecution(directory:string,signal:AbortSignal,
   let result;
   try{result=JSON.parse(await readFile(join(directory,'result.json'),'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   if(result){if(!result.ok)throw Error(result.error);return result.value;}
-  try{const process=JSON.parse(await readFile(join(directory,'process.json'),'utf8'));if(watchProcessIdentity(process.pid)!==process.identity)throw Error('watch_execution_unconfirmed');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+  try{const process=JSON.parse(await readFile(join(directory,'process.json'),'utf8'));if(watchProcessIdentity(process.pid)!==process.identity){
+   // resultのatomic rename直後にworkerが終了した場合も終端結果を優先する。
+   let terminal;try{terminal=JSON.parse(await readFile(join(directory,'result.json'),'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+   if(terminal){if(!terminal.ok)throw Error(terminal.error);return terminal.value;}
+   throw Error('watch_execution_unconfirmed');
+  }}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   await new Promise(r=>setTimeout(r,50));
  }
 }
@@ -68,7 +73,7 @@ export async function watchExecutionSettled(config:TaktConfig,id:string,owner:st
 
 /** 同じ実行へMCPで追加指示する。応答喪失したwriteは再送しない。 */
 export async function tellWatchExecution(config:TaktConfig,id:string,owner:string,key:string,content:string){
- if(!/^[a-zA-Z0-9_-]{1,64}$/.test(key)||!content.trim()||Buffer.byteLength(content)>8192)throw Error('invalid_run_instruction');
+ if(typeof key!=='string'||!/^[a-zA-Z0-9_-]{1,64}$/.test(key)||typeof content!=='string'||!content.trim()||Buffer.byteLength(content)>8192)throw Error('invalid_run_instruction');
  const directory=executionDirectory(config,id),request:WatchExecutionRequest=JSON.parse(await readFile(join(directory,'request.json'),'utf8'));
  if(request.owner!==owner||request.order.id!==id)throw Error('watch_execution_identity_conflict');
  const instructions=join(directory,'instructions');await mkdir(instructions,{recursive:true,mode:0o700});
@@ -81,7 +86,8 @@ export async function tellWatchExecution(config:TaktConfig,id:string,owner:strin
   if(policy.root!==join(owned,'repo')||tasks.length!==1||tasks[0].name!==policy.taskName||tasks[0].summary!==orderMarker(request.order)||tasks[0].workflow!==request.order.workflow||tasks[0].status!=='running'||!tasks[0].runSlug)throw Error('instruction_run_not_ready');
   await writeFile(file,JSON.stringify({hash,runSlug:tasks[0].runSlug,delivered:false}),{flag:'wx',mode:0o600});
   const receipt=await client.tell(tasks[0].runSlug,content);
-  await writeFile(file,JSON.stringify({hash,runSlug:tasks[0].runSlug,delivered:true,receipt}),{mode:0o600});
+  await writeFile(file+'.tmp',JSON.stringify({hash,runSlug:tasks[0].runSlug,delivered:true,receipt}),{flag:'wx',mode:0o600});
+  await rename(file+'.tmp',file);
   return receipt;
  }finally{await client.close();}
 }

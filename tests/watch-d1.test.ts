@@ -4,16 +4,17 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { Store, type Database, type Statement } from '../control-plane/store.ts';
 import { DevelopmentStore } from '../control-plane/development-store.ts';
-import { developmentInput } from '../shared/development.ts';
+import { developmentInput as parseDevelopmentInput } from '../shared/development.ts';
 class DB implements Database {
  db=new DatabaseSync(':memory:');
  constructor(){for(const file of ['0001_initial.sql','0002_capacity.sql','0003_development.sql','0004_takt_resources.sql'])this.db.exec(readFileSync('control-plane/migrations/'+file,'utf8'));}
  prepare(sql:string):Statement {const stmt=this.db.prepare(sql);let args:any[]=[];return {bind(...v){args=v;return this;},async first<T>(){return stmt.get(...args) as T??null;},async all<T>(){return {results:stmt.all(...args) as T[]};},async run(){return stmt.run(...args);}};}
  async batch(list:Statement[]){this.db.exec('BEGIN');try{for(const s of list)await s.run();this.db.exec('COMMIT');}catch(e){this.db.exec('ROLLBACK');throw e;}}
 }
+const developmentInput=(value:unknown)=>parseDevelopmentInput(value,{allowWatchTest:true});
 const input={repoId:'private-agent',baseRef:'epic/development-runner',goal:'synthetic',acceptanceCriteria:['pass'],executionProfileId:'takt-watch',watch:{issue:1,validation:['Check expected behavior']}};
 const limits={models:{'codex-luna':1,'codex-sol':1,'pi-swe2':0},groups:{shared:1}};
-function setup(){const db=new DB();let now=1000000;const store=new Store(db,()=>now),dev=new DevelopmentStore(store);return {db,store,dev,advance:(ms:number)=>now+=ms,claim:(owner='a',worker='w',caps=limits)=>store.claim(owner,worker,'codex-luna','shared',caps,'development','takt-watch')};}
+function setup(){const db=new DB();let now=1000000;const store=new Store(db,()=>now),dev=new DevelopmentStore(store,{allowWatchTest:true});return {db,store,dev,advance:(ms:number)=>now+=ms,claim:(owner='a',worker='w',caps=limits)=>store.claim(owner,worker,'codex-luna','shared',caps,'development','takt-watch')};}
 test('watch is explicit, bounded and programmatic; defaults and local repo remain compatible',()=>{
  const parsed=developmentInput(input);assert.deepEqual(parsed.watch,{issue:1,workflow:'default',validation:['Check expected behavior'],dependencies:[]});assert.equal(parsed.orchestratorProfileId,'programmatic');
  assert.equal(developmentInput({...input,executionProfileId:undefined,watch:undefined}).executionProfileId,'takt-simple');
@@ -97,4 +98,9 @@ test('delegated cancellation is explicit and retains hold until the original exe
   await assert.rejects(store.heartbeat('a','foreign',run.id,run.token!),/lease_lost/);
   await store.finish('a','w',run.id,run.token!,null,'stopped');assert.equal(await claim(),null);
  }finally{db.db.close();}
+});
+
+test('watch admission is closed by default and requires an explicit internal test opt-in',async()=>{
+ assert.throws(()=>parseDevelopmentInput(input),/watch_runtime_validation_pending/);
+ const db=new DB();try{await assert.rejects(new DevelopmentStore(new Store(db)).submit('a','closed',input),/watch_runtime_validation_pending/);}finally{db.db.close();}
 });
