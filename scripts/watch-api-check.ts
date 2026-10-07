@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {integrationConfig} from './local-integration.ts';
 import {DevelopmentClient} from '../development/client.ts';
 import {client} from '../wsl-worker/main.ts';
-const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
+const {tokens,base}=await integrationConfig();
 const viewer=new DevelopmentClient(base,tokens.viewer,{allowWatchTest:true}),worker=client(base,tokens.worker),other=new DevelopmentClient(base,tokens.other);
-const spec={repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic watch D1 lifecycle',acceptanceCriteria:['No provider call'],executionProfileId:'takt-watch',watch:{issue:1,validation:['Synthetic host proof']}};
+const spec={repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic watch SQLite lifecycle',acceptanceCriteria:['No provider call'],executionProfileId:'takt-watch',watch:{issue:1,validation:['Synthetic host proof']}};
 assert.equal((await viewer.profiles()).profiles.executors.find((p:any)=>p.id==='takt-watch').available,false);
 assert.throws(()=>new DevelopmentClient(base,tokens.viewer).submit(spec,crypto.randomUUID()),/watch_runtime_validation_pending/);
 const first=await viewer.submit(spec,crypto.randomUUID()),dependent=await viewer.submit({...spec,watch:{...spec.watch,dependencies:[first.id]}},crypto.randomUUID());
@@ -18,4 +18,4 @@ assert.equal(run.job_id,first.id);await viewer.cancel(first.id);await assert.rej
 assert.equal(await worker('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}),null);
 assert.equal((await viewer.status(dependent.id)).state,'queued');await viewer.cancel(dependent.id);
 await worker('/api/development/runner-heartbeat',{available:false,executionProfile:'takt-watch'});
-console.log(JSON.stringify({localD1Watch:true,capacityEnabled:!!run,profileFenced:true,dependencyWait:true,cancelFenced:true,providerExecuted:false}));
+console.log(JSON.stringify({localSQLiteWatch:true,capacityEnabled:!!run,profileFenced:true,dependencyWait:true,cancelFenced:true,providerExecuted:false}));

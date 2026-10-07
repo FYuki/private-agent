@@ -1,5 +1,5 @@
 import {Fault,LIMITS,jobInput, type Provider,type Run,type Capacity} from '../shared/contracts.ts';
-// A tiny SQL boundary; Workers supplies D1, tests use real SQLite with the same SQL.
+// The SQL boundary is shared by the local SQLite adapter and test doubles.
 export interface Statement {bind(...v:unknown[]):Statement; first<T>():Promise<T|null>; all<T>():Promise<{results:T[]}>; run():Promise<unknown>}
 export interface Database {prepare(sql:string):Statement; batch(s:Statement[]):Promise<unknown>}
 // enqueue前の永続予約以降は監視leaseと実行寿命を分離する。不明な引渡しも再投入しない。
@@ -18,11 +18,11 @@ export class Store {
     if(!saved)throw new Fault(429,'job_limit');
     if(saved.spec!==spec)throw new Fault(409,'idempotency_conflict');return saved.id;
   }
-  async tick(at=this.now(),owner?:string){
+  async tick(at=this.now(),owner?:string,collectPending=true){
     const jobs=(await this.q(`SELECT * FROM jobs WHERE enabled=1${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string;start_at:number;interval_seconds:number;max_runs:number}>()).results;
     let enqueued=0,skipped=0;
     for(const j of jobs){
-      // Current occurrence only: missed slots are not caught up. A skip never creates a Workflow.
+      // Current occurrence only: missed slots are not caught up.
       const slot=Math.floor((at-j.start_at)/(j.interval_seconds*1000));
       if(slot<0||slot>=j.max_runs)continue;
       const when=j.start_at+slot*j.interval_seconds*1000;
@@ -31,13 +31,15 @@ export class Store {
         WHERE EXISTS(SELECT 1 FROM jobs WHERE id=? AND enabled=1) RETURNING state`,`${j.id}:${slot}`,j.id,j.owner,slot,when,j.id,this.now(),j.id).first<{state:string}>();
       if(r?.state==='starting')enqueued++;if(r?.state==='skipped')skipped++;
     }
-    // Transactional outbox: recover accepted starts after scheduler/Workflow-create failure.
-    const pending=(await this.q(`SELECT id,owner FROM runs WHERE state='starting'${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string}>()).results;
+    // Durable outbox: recover accepted starts after a dispatcher crash.
+    const pending=collectPending?(await this.q(`SELECT id,owner FROM runs WHERE state='starting'${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string}>()).results:[];
     return {enqueued,skipped,pending};
   }
   async activate(id:string){
-    await this.q(`UPDATE runs SET state='queued' WHERE id=? AND state='starting'`,id).run();return {id};
+    await this.q(`UPDATE runs SET state='queued' WHERE id=? AND state='starting' AND attempt=0 AND token IS NULL
+      AND EXISTS(SELECT 1 FROM jobs WHERE id=runs.job_id AND owner=runs.owner AND enabled=1)`,id).run();return {id};
   }
+  // Retain the existing Store API; local dispatch leaves failed activation recoverable.
   async failStarting(id:string){
     return this.q(`UPDATE runs SET state='failed',error='workflow_failed' WHERE id=? AND state='starting' AND attempt=0 AND token IS NULL RETURNING id`,id).first<{id:string}>();
   }

@@ -6,7 +6,7 @@
 
 ## ジョブ枠とモデル
 
-新規`takt-watch` taskはD1でplan系列Solの1枠と共有groupの1枠を予約する。coding、review、selectorは追加jobとして数えない。現対応はplanが`gpt-6-sol`または`gpt-6.1-sol`の構成だけで、Luna planは`plan_job_family_mismatch`としてモデル開始前に拒否する。Luna planを対応させる際は、受付側のprofileとworker側の解決結果をともに変更する。既存taskの予約値は書き換えない。
+新規`takt-watch` taskはSQLiteでplan系列Solの1枠と共有groupの1枠を予約する。coding、review、selectorは追加jobとして数えない。現対応はplanが`gpt-6-sol`または`gpt-6.1-sol`の構成だけで、Luna planは`plan_job_family_mismatch`としてモデル開始前に拒否する。Luna planを対応させる際は、受付側のprofileとworker側の解決結果をともに変更する。既存taskの予約値は書き換えない。
 
 公式defaultのparallel reviewを保ち、外側CLI全体の直列lockを廃止した。短い排他区間で起動回数だけを原子的に予約し、各CLIは独立PID namespaceで実行する。従前の有限試験は最大60 CLI・1起動300秒だった。通常watchにはこの固定上限を適用しない（[現行契約](takt-watch-lifetime.md)）。出力4MiBは維持する。全起動の終了を照合するまで成功を受理しない。起動失敗も消費済みとし、未確認lockを時間だけで奪わない。これはSDK内部のmodel request数の計測・課金上限ではない。
 
@@ -14,11 +14,13 @@
 
 ## dev専用入口
 
-`scripts/watch-dev-acceptance.ts --live-authorized`は明示的な一件試験。通常runnerを有効にせず、実D1 API→lease→公式default→固定host検証→saveArtifact/finishArtifact→完了報告を使用する。合成Git、専用localhost認証、独立D1を新規作成する。既存IDの再実行は禁止。Git originは同一性契約のためだけに設定し、fetch/push/PR作成をしない。モデルの子ツールには通信・認証読取・Git操作権限を与えない。
+`scripts/watch-dev-acceptance.ts --live-authorized`は明示的な一件試験。通常runnerを有効にせず、実SQLite API→lease→公式default→固定host検証→saveArtifact/finishArtifact→完了報告を使用する。合成Git、専用localhost認証、独立SQLiteを新規作成する。既存IDの再実行は禁止。Git originは同一性契約のためだけに設定し、fetch/push/PR作成をしない。モデルの子ツールには通信・認証読取・Git操作権限を与えない。
 
 起動には`WATCH_ACCEPTANCE_ID`、既存`CODEX_PACKAGE`、`CODEX_AUTH_FILE`と、承認済みの`WATCH_MAX_CLI`（1–60）、`WATCH_BUDGET_MS`（60000–3600000）を明示する。未指定では起動しない。ローカルテスト認証を本番へ流用しない。モデル実行前に既存ログイン、公式schema、plan系列を確認する。成功判定には固定hostのnpm check/testと5個の独立assertionが必要。提供済み成功証跡だけで今回の成功とは扱わない。
 
-## 環境制約と受入記録
+現在のdev受入は`.local/watch-acceptance/<新規ID>/control.sqlite`を使用し、request・run-location・settlementへ同じ絶対`dbPath`を保存する。別processの確認器はそのDBのみをread-onlyで開き、終端・hold・最終件数を検証する。Wrangler固有探索やDB欠落時の作成は行わない。`WATCH_RUNS_PARENT`で短い永続保存先を明示し、`--stub-provider`で失敗stubを使う。現行の起動・照合コマンドは[ローカル運用](local-control.md)を参照。
+
+## 環境制約と受入記録（旧D1実装時点の履歴）
 
 最初の実モデル試験`99e0ba11-2d5c-43c0-9087-ece138956bb1`は、公式0.68.0が絶対cloneパスをセッション保存名へ展開するため`ENAMETOOLONG`で失敗した。CLI起動1回（6.1 Sol）、175398ms。タイムアウトやモデル予算超過とは区別する。watch PID namespace終了、process group消滅、D1 failed/hold_until=0を確認した。生のmodel応答は公開しない。
 
@@ -34,7 +36,7 @@
 
 ## 検証・ロールバック
 
-単体回帰はジョブ枠、複数CLIの重なり、総起動上限、全起動終了照合、6.1 allowlist、Luna plan拒否、保存先長、取消時hold維持を確認する。CIはsecret不要の型検査・単体・dry-run build・公式reader・実ローカルD1/Workflowsを実行する。live受入はCIから起動しない。
+単体回帰はジョブ枠、複数CLIの重なり、総起動上限、全起動終了照合、6.1 allowlist、Luna plan拒否、保存先長、取消時hold維持を確認する。CIはsecret不要の型検査・単体・実行可能なローカルbuild・公式reader・実SQLite/HTTP統合を実行する。live受入はCIから起動しない。
 
 戻す場合はこのPRを配備しないか、通常watchガードを維持したまま変更commitをrevertする。未完了taskや未確認holdをSQLで強制解放せず、元runnerの停止証明を先に確認する。main merge・deploy・サービス有効化・外部成果物公開は別承認のままである。
 

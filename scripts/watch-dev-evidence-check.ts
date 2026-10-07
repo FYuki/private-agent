@@ -1,6 +1,6 @@
-// 受入プロセス終了後、永続証跡を別プロセスから照合する。認証・モデル呼出・D1変更は行わない。
+// 受入プロセス終了後、永続証跡を別プロセスから照合する。認証・モデル呼出・制御DB変更は行わない。
 import {readFile,readdir,writeFile} from 'node:fs/promises';
-import {resolve,join} from 'node:path';
+import {resolve,join,isAbsolute} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {WatchSupervisor} from '../development/watch-supervisor.ts';
@@ -15,7 +15,10 @@ const root=resolve('.local/watch-acceptance',tag!);
 const json=async(path:string)=>JSON.parse(await readFile(path,'utf8'));
 const settlement=await json(join(root,'settlement.json')),request=await json(join(root,'request.json'));
 assert.equal(settlement.task,request.id);
-assert.equal(settlement.runs,(await json(join(root,'run-location.json'))).runs);
+const location=await json(join(root,'run-location.json'));
+assert.equal(settlement.runs,location.runs);
+assert.equal(typeof request.dbPath,'string');assert.ok(isAbsolute(request.dbPath));
+assert.equal(settlement.dbPath,request.dbPath);assert.equal(location.dbPath,request.dbPath);
 const owned=join(settlement.runs,request.id);
 const events=(await readFile(join(owned,'private/activity.ndjson'),'utf8')).split('\n').filter(Boolean).map(x=>JSON.parse(x));
 verifyProviderSettlement(events,request.maxCli);
@@ -26,10 +29,7 @@ assert.equal(settlement.inputUnchanged,true);
 assert.equal(verifyAcceptanceRuntime(await readFile(join(root,'inputs/runtime.yaml'))),request.inputHash);
 const supervisor=new WatchSupervisor(join(owned,'supervisor.db'));
 try{assert.equal(supervisor.status('local',join(owned,'repo'))?.observed,'exited');}finally{supervisor.close();}
-const d1=join(root,'d1/v3/d1');
-const databases=(await readdir(d1,{recursive:true})).filter(x=>/(?:^|\/)[a-f0-9]{64}\.sqlite$/.test(x));
-assert.equal(databases.length,1);
-const db=new DatabaseSync(join(d1,databases[0]),{readOnly:true});
+const db=new DatabaseSync(request.dbPath,{readOnly:true});
 let row;
 try{row=db.prepare('SELECT state,hold_until FROM runs WHERE job_id=?').get(request.id);}finally{db.close();}
 assert.ok(row);assert.equal(row.hold_until,0);
@@ -49,6 +49,6 @@ if(process.argv.includes('--expect-stub-failure')){
  assert.equal(artifact.taskId,request.id);assert.equal(artifact.headSha,evidence.headSha);
  assert.equal(artifact.mode,'local_only');
 }
-const summary={task:request.id,stub:request.stub,fullAcceptanceSucceeded:!request.stub,d1State:row.state,holdUntil:row.hold_until,providerStarts:events.filter(x=>x.event==='started').length,providerClosed:events.filter(x=>x.event==='closed').length,watchStopped:true,durableEvidenceVerified:true,publication:false};
+const summary={task:request.id,dbPath:request.dbPath,stub:request.stub,fullAcceptanceSucceeded:!request.stub,state:row.state,holdUntil:row.hold_until,providerStarts:events.filter(x=>x.event==='started').length,providerClosed:events.filter(x=>x.event==='closed').length,watchStopped:true,durableEvidenceVerified:true,publication:false};
 await writeFile(join(root,'verified-summary.json'),JSON.stringify(summary,null,2),{flag:'wx',mode:0o600});
 console.log(JSON.stringify(summary));
