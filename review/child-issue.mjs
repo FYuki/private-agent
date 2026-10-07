@@ -1,4 +1,4 @@
-// 成功した「実装→必須レビュー」のみを公開へ接続する。
+/** 子Issue・repo・開発経路とEpic宛ブランチ形式を検証し、不正値は実行前に拒否する。Git上の実在確認は呼出し側が担う。 */
 export function validateChildContext(context) {
   if (!/^epic\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(context.epic ?? '') || context.epic.includes('..')) throw Error('epic_base_required');
   if (!/^(feature|fix|docs|infra|character)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(context.branch ?? '') || context.branch.includes('..')) throw Error('child_branch_required');
@@ -7,6 +7,10 @@ export function validateChildContext(context) {
   if (!['takt', 'external'].includes(context.development)) throw Error('development_route_required');
 }
 
+/**
+ * 実装・レビューの成功結果だけを公開処理へ渡す。例外や承認不足では公開しない。
+ * 再実行でexecuteも再度呼ぶため、公開のみの再試行は保存済み承認を使う別入口に任せる。
+ */
 export async function runChildIssue(context, dependencies) {
   validateChildContext(context);
   const review = await dependencies.execute(context);

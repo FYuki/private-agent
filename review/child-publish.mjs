@@ -3,9 +3,11 @@ import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateChildContext } from './child-issue.mjs';
 
+/** 指定worktreeでhooksと署名を無効にしてGitを実行し、失敗は呼出し側へ伝える。argvは信頼したホストが組み立てる。 */
 export function gitAt(project, args) {
   return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], { cwd: project, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
+/** checkout中の子Issueブランチとoriginの取得・公開先を検証する。不一致は拒否し、checkoutやremote変更は行わない。 */
 export function verifyChildBranch(context) {
   validateChildContext(context);
   for (const branch of [context.branch, context.epic]) gitAt(context.project, ['check-ref-format', '--branch', branch]);
@@ -28,6 +30,12 @@ export function matchingPullRequest(list, context, sha) {
   return pr.url;
 }
 
+/**
+ * 保存済み承認と現在のHEAD・clean tree・Epic SHAを照合し、同じrepoへ通常pushして
+ * draft PRを作成または再利用する。変更済みソースや不一致PRは拒否する。
+ * push後に失敗する場合もあるため、再試行は同じ承認記録を使い既存PRを照合する。
+ * 成功時だけpublished.jsonを保存し、mergeやIssue closeは行わない。
+ */
 export async function publishChildIssue(context, runDir, dependencies = {}) {
   verifyChildBranch(context);
   const git = dependencies.git ?? (args => gitAt(context.project, args));

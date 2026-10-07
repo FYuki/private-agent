@@ -9,7 +9,11 @@ export const taktRoot = join(repository, 'runtime/takt/node_modules/takt');
 const integrity = 'sha512-92yoikSQ6kyj/PYMrefONIOKkNW9CdiJrAl2REPdsmdKp3M3XUMZnxDOjCtf1mAnOMadJpVGlGa5sYuaI1hjcw==';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
-// 独立したconfigを新規作成する。原本/global/project設定への書き込みはしない。
+/**
+ * 固定TAKTと入力schemaを検証し、モデルを呼ばず独立したレビュー構成を生成する。
+ * 原本は変更せず、既存outputへの上書きは拒否する。途中失敗で残ったoutputも
+ * 再利用せず、再試行には新しい出力先を指定する。
+ */
 export async function prepareReview({ output, input = join(repository, 'examples/takt') }) {
   const configDir = resolve(output);
   const pkg = JSON.parse(readFileSync(join(taktRoot, 'package.json')));
