@@ -1,0 +1,41 @@
+{
+  "baseHead": "70edffa639473aaba9a36904057daa67afe11116",
+  "fullAcceptanceSucceeded": false,
+  "realModelCalls": 0,
+  "additionalLiveBudgetApproved": false,
+  "checks": {
+    "typecheck": true,
+    "unitTestsPassed": 124,
+    "dryRunBuild": true,
+    "officialSchemaAndBinding": true,
+    "isolatedWatchFailureStub": true,
+    "localD1WorkflowsIntegration": true,
+    "stubRejectedAsLiveSuccess": true
+  },
+  "defaultD1StubRuns": [
+    {
+      "acceptanceId": "stub-d1-20261007-01",
+      "taskId": "fe6ebe29-5be0-4266-85e0-aaa5dab505ff",
+      "providerStarts": 2,
+      "providerClosed": 2,
+      "watchStopped": true,
+      "d1State": "failed",
+      "holdUntil": 0,
+      "durableEvidenceVerified": true
+    },
+    {
+      "acceptanceId": "stub-d1-20261007-02",
+      "taskId": "d8cb4189-3802-4674-92f8-1018e2bb2049",
+      "providerStarts": 2,
+      "providerClosed": 2,
+      "watchStopped": true,
+      "d1State": "failed",
+      "holdUntil": 0,
+      "durableEvidenceVerified": true
+    }
+  ],
+  "inputRuntimeSha256": "89140cbb8d83ca51a94ae3f2e471a219764a79531feb131514468b65a11fcefa",
+  "normalRunnerEnabled": false,
+  "remotePublication": false,
+  "priorLiveTerminalReasonStillUnknown": true
+}

@@ -35,3 +35,36 @@
 単体回帰はジョブ枠、複数CLIの重なり、総起動上限、全起動終了照合、6.1 allowlist、Luna plan拒否、保存先長、取消時hold維持を確認する。CIはsecret不要の型検査・単体・dry-run build・公式reader・実ローカルD1/Workflowsを実行する。live受入はCIから起動しない。
 
 戻す場合はこのPRを配備しないか、通常watchガードを維持したまま変更commitをrevertする。未完了taskや未確認holdをSQLで強制解放せず、元runnerの停止証明を先に確認する。main merge・deploy・サービス有効化・外部成果物公開は別承認のままである。
+
+## 2026-10-07：専用worktreeでの再試験準備
+
+PR22は引き続きDraft OPEN、head `70edffa639473aaba9a36904057daa67afe11116` のverify成功、親PR20はOPEN／verify成功をGitHubで再確認した。追加実モデル予算の承認は確認できていない。旧保存先 `/tmp/paw-65hRyO` は現在も存在せず、再試験の最終原因・最終件数は復元できない。残予算を推定しない。
+
+T3専用worktreeの絶対パスでは、従来の `.local/w/<4文字>/<UUID>/clones` も保存名上限を超える。`WATCH_RUNS_PARENT` で短い永続データ領域を明示できるようにし、UUIDを含めた長さをD1受付・認証参照より前に検査する。作業worktreeの移動や既存worktreeの編集は行わない。v3 runtimeはコピーしたbytesの上記SHA-256一致を必須にした。
+
+`--stub-provider` は実Codexのパス・認証を使わず、内蔵の失敗stubと偽認証を使う独立モード。上限2 CLI／90秒でD1受付→公式default→失敗→停止・永続記録を検証する。`--live-authorized` とは併用不可。成功経路は全中間commitで変更したパスが指定2ファイルだけであることもhostで確認する。
+
+secret不要検証は型検査、124テスト、dry-run build、公式schema／reader／runtime設定／失敗stub、ローカルD1・Workflows統合が成功。D1付きdefault失敗stubは2件実施し、それぞれ2起動・2終了、watch停止、D1 failed／hold_until=0、入力hash維持と永続証跡を別プロセスで確認した。**実モデル呼出しは0回、実統合受入は未成功**。終了照合は `scripts/watch-dev-evidence-check.ts` を使い、stubの証跡をlive成功として受理しない。
+
+### 次の一件（予算承認待ち）
+
+- payload：合成Gitの `shared/greeting.js` と `tests/greeting.test.js` のみ変更。名前をtrimし、未指定・空・空白のみなら `Hello, world`。既存 `Ada` の互換性を保つ。正確なgoal／ACは受入scriptのspec、ローカル準備済み `.local/verification/live-request-proposal.json` に保存。
+- 公式TAKT 0.68.0 defaultを1件。plan=6.1 Sol xhigh、coding/review=6 Sol medium、default/selector=Luna xhigh。runtimeの他設定は提供v3を維持。
+- 提案上限：新規60分、合計60 CLI、各300秒。再試験の自動追加なし。SDK内部request数や金額の上限ではない。
+- 保存先：実行データは `/home/asa/.local/paw/<新規4桁hex>`、D1・request・終了件数・artifactは専用worktreeの `.local/watch-acceptance/default-d1-20261007-01/`。既存ID・runを再使用しない。
+- 通信：受入APIは `127.0.0.1:18797`、provider CLIは既存ChatGPTログインでCodexへ接続。モデルの子ツールは通信不可。Git originは同一性用でfetch/pushしない。
+
+承認後に限り、専用worktreeで以下を実行する。現在の準備では実行していない。
+
+```bash
+export WATCH_ACCEPTANCE_ID=default-d1-20261007-01
+export WATCH_RUNS_PARENT=/home/asa/.local/paw
+export WATCH_MAX_CLI=60 WATCH_BUDGET_MS=3600000
+export CODEX_PACKAGE=/home/asa/.nvm/versions/node/v24.15.0/lib/node_modules/@openai/codex
+export CODEX_AUTH_FILE=/home/asa/.codex/auth.json
+node --import tsx scripts/watch-dev-acceptance.ts --live-authorized
+# 成功終了後、別プロセスで停止・件数・D1 hold・artifact hashを照合する。
+node --import tsx scripts/watch-dev-evidence-check.ts
+```
+
+成功には公式defaultのAPPROVE伝播、固定host検証と独立assertion 5件、local-only artifact、全CLI終了照合、watch停止、D1 succeeded／hold_until=0をすべて要求する。host証跡配送を使う場合も同じ `WATCH_RUNS_PARENT` を明示する。配送受付だけを成功と扱わない。実行が失敗した場合は永続runの終端を調査し、新たな試験を無断で始めない。

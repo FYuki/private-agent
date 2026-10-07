@@ -5,12 +5,14 @@ import {execFileSync,spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {executeWatch} from '../development/watch-adapter.ts';
 import {watchOrder} from '../development/watch-contract.ts';
+import {watchAcceptanceRuns} from '../development/watch-dev-preflight.ts';
 const sandbox=spawnSync('/usr/bin/bwrap',['--unshare-user','--unshare-pid','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--','/usr/bin/true'],{stdio:'ignore'}).status===0;
 if(!sandbox){console.log(JSON.stringify({watchRuntimeSmoke:'unavailable_pid_namespace',providerExecuted:false}));process.exit(0);}
-await mkdir(resolve('.local/w'),{recursive:true,mode:0o700});
-const dir=resolve('.local/w',crypto.randomUUID().slice(0,4));await mkdir(dir,{mode:0o700});
-const repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=join(dir,'r'),auth=join(dir,'fixture-auth.json');
-for(const p of [repo,pkg,runs,join(pkg,'bin')])await mkdir(p);
+const parent=resolve(process.env.WATCH_RUNS_PARENT||'.local/w');
+const dir=watchAcceptanceRuns(parent,crypto.randomUUID().slice(0,4));
+await mkdir(parent,{recursive:true,mode:0o700});await mkdir(dir,{mode:0o700});
+const repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=dir,auth=join(dir,'fixture-auth.json');
+for(const p of [repo,pkg,join(pkg,'bin')])await mkdir(p);
 await writeFile(auth,'{"fixture":true}',{mode:0o600});
 // 明確な失敗stub。公式watch→SDK→内側sandboxの到達だけを検証し、実モデル成功と混同しない。
 await writeFile(join(pkg,'bin/codex.js'),"process.stderr.write('synthetic_provider_failure\\n');process.exitCode=7;",{mode:0o600});
