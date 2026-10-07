@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {integrationConfig} from './local-integration.ts';
 import {DevelopmentClient} from '../development/client.ts';
 import {client} from '../wsl-worker/main.ts';
-const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
+const {tokens,base}=await integrationConfig();
 const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker);
 const {id}=await viewer.submit({repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic TAKT API test; never execute a model.',acceptanceCriteria:['cancel and progress'],budgetMs:7200000},crypto.randomUUID());
 await worker('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-simple'});

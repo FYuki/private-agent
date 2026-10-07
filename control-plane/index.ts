@@ -1,5 +1,4 @@
-import {WorkflowEntrypoint,type WorkflowEvent,type WorkflowStep} from 'cloudflare:workers';
-import {Store} from './store.ts';
+import {Store,type Database} from './store.ts';
 import {authenticate} from './auth.ts';
 import {Fault,LIMITS,CAPACITY_MAX,exact,object,str,integer,provider,capacity} from '../shared/contracts.ts';
 import {html,script} from './ui.ts';
@@ -10,17 +9,11 @@ import {DevelopmentStore} from './development-store.ts';
 import {PublicationStore} from './publication-store.ts';
 import {DEVELOPMENT_DEFAULTS,DEVELOPMENT_PROFILES} from '../shared/development.ts';
 import {repositoryChoices} from '../shared/repositories.ts';
-type Tick={runId:string};
-export interface Env {DB:D1Database; TICK:Workflow<Tick>; MODE:string;WATCH_ACCEPTANCE_ENABLED?:string;AUTH_JSON?:string;SCHEDULE_ENABLED:string;LIMITS_JSON:string}
-export class ScheduleTick extends WorkflowEntrypoint<Env,Tick>{
-  async run(event:WorkflowEvent<Tick>,step:WorkflowStep){
-    return step.do('release-admitted-run',{retries:{limit:2,delay:'1 second',backoff:'constant'},timeout:'10 seconds'},async()=>{
-      const db=new MeasuredDatabase(this.env.DB),start=performance.now();const result=await new Store(db).activate(event.payload.runId);
-      return {...result,...(this.env.MODE==='local'?{measurement:{...db.metrics,wallMs:performance.now()-start,logicalSteps:1}}:{})};
-    });
-  }
-}
+export interface Env {DB:Database; MODE:string;WATCH_ACCEPTANCE_ENABLED?:string;AUTH_JSON?:string;LIMITS_JSON:string}
 const headers={'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
+export function errorResponse(error: unknown, extraHeaders: Record<string,string> = {}) {
+  return Response.json({error:error instanceof Fault?error.message:'internal_error'},{status:error instanceof Fault?error.status:500,headers:{...headers,...extraHeaders}});
+}
 async function body(req:Request){
   if(!req.headers.get('content-type')?.startsWith('application/json'))throw new Fault(415,'json_required');
   const reader=req.body?.getReader();if(!reader)throw new Fault(400,'body_required');let n=0;const chunks:Uint8Array[]=[];
@@ -53,8 +46,10 @@ export default {
    if(req.method==='GET'&&path==='/api/state'){if(p.role!=='viewer')throw new Fault(403,'role_denied');return json(await store.list(p.owner));}
    if(req.method==='GET'&&path.startsWith('/api/ticks/')){
      if(p.role!=='viewer'||env.MODE!=='local')throw new Fault(403,'role_denied');
-     const id=path.slice('/api/ticks/'.length);if(!id.startsWith(p.owner+'-'))throw new Fault(404,'not_found');
-     return json(await (await env.TICK.get(id)).status());
+     const id=path.slice('/api/ticks/'.length);
+     const run=await store.q('SELECT id,state FROM runs WHERE id=? AND owner=?',id,p.owner).first<{id:string;state:string}>();
+     if(!run)throw new Fault(404,'not_found');
+     return json(run);
    }
    if(req.method!=='POST')throw new Fault(404,'not_found');
    const b=await body(req);
@@ -114,13 +109,9 @@ export default {
    if(disable){exact(b,[]);return json(await store.disable(p.owner,disable[1]));}
    if(path==='/api/tick'&&env.MODE==='local'){
      exact(b,['at']);const at=integer(b.at,0,Date.now()+60000);
-     return json(await dispatch(env.TICK,store,at,p.owner),202);
+     return json(await dispatch(store,at,p.owner),202);
    }
    throw new Fault(404,'not_found');
-  }catch(e){return json({error:e instanceof Fault?e.message:'internal_error'},e instanceof Fault?e.status:500);}
- },
- async scheduled(event:ScheduledController,env:Env){
-   if(env.SCHEDULE_ENABLED!=='true')return;
-   await dispatch(env.TICK,new Store(env.DB),event.scheduledTime);
+  }catch(e){return errorResponse(e,env.MODE==='local'?{'x-local-measurement':JSON.stringify({...db.metrics,wallMs:performance.now()-start})}:{});}
  }
 };
