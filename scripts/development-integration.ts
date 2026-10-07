@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import {integrationConfig} from './local-integration.ts';
 import { DevelopmentClient } from '../development/client.ts';
 import { client } from '../wsl-worker/main.ts';
-const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
+const {tokens,base}=await integrationConfig();
 const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker);
 assert.equal((await fetch(base+'api/development/config')).status,401);
 const config=await viewer.profiles();assert.equal(config.defaults.orchestratorProfileId,'programmatic');
@@ -18,4 +18,4 @@ const run=await worker('/api/claim',{protocol:'development-v1',taskKind:'develop
 await viewer.cancel(id);await assert.rejects(worker('/api/runs/'+run.id+'/heartbeat',{token:run.token}),/409/);
 await worker('/api/runs/'+run.id+'/complete',{token:run.token,result:null,error:'cancelled'});
 assert.equal((await viewer.status(id)).state,'cancelled');await worker('/api/development/runner-heartbeat',{available:false});
-console.log(JSON.stringify({localD1:true,authenticatedApi:true,idempotency:true,cancellation:true,developmentBudgetMs:900000,realModel:false}));
+console.log(JSON.stringify({localSQLite:true,authenticatedApi:true,idempotency:true,cancellation:true,developmentBudgetMs:900000,realModel:false}));

@@ -1,3 +1,4 @@
+import {verifyCommitRange} from '../development/commit-range.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -163,6 +164,14 @@ test('real Git verifies original full-mode hashes for 0600 and executable source
  const executable={contentHash:fingerprint([['browser/playback-ack.mjs',(await lstat(path)).mode,content]])};await verifyPublicationSource(binding,input,executable,signal,deadline());
  await assert.rejects(verifyPublicationSource(binding,input,original,signal,deadline()),/content_changed/);
  await writeFile(path,'export const changed = 2;');await assert.rejects(verifyPublicationSource(binding,input,executable,signal,deadline()),/head_changed/);
+ await writeFile(path,content);await chmod(path,0o700);
+ const amended=input.headSha;await writeFile(path,content+'// second reviewed commit\n');git(['add','.'],directory);git(['commit','-m','second fixture'],directory);input.headSha=git(['rev-parse','HEAD'],directory);
+ const range=await verifyCommitRange(async args=>execFileSync('/usr/bin/git',args,{cwd:directory,encoding:'utf8'}),'local-GPT-live',baseSha,input.headSha);
+ assert.deepEqual(range.commits,[amended,input.headSha]);
+ const multiple={contentHash:fingerprint([['browser/playback-ack.mjs',(await lstat(path)).mode,content+'// second reviewed commit\n']]),commitRange:range};
+ await verifyPublicationSource(binding,input,multiple,signal,deadline());
+ await assert.rejects(verifyPublicationSource(binding,input,{contentHash:multiple.contentHash},signal,deadline()),/head_changed/);
+ await assert.rejects(verifyPublicationSource(binding,input,{...multiple,commitRange:{...range,digest:'f'.repeat(64)}},signal,deadline()),/range_changed/);
  await unlink(path);await writeFile(join(root,'external.mjs'),content);await symlink(join(root,'external.mjs'),path);
  await assert.rejects(verifyPublicationSource(binding,input,executable,signal,deadline()),/head_changed/);
 });

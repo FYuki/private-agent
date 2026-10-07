@@ -25,7 +25,7 @@
 }
 ```
 
-artifactIdはhead SHAとは異なる。成果物ファイル名の64桁hashを使う。taskはsucceededかつleaseと容量hold解放済みである必要がある。D1の完了結果とartifact操作結果、ローカルの保護されたmanifest、Git commitの親/head/blob、実ファイルの内容・mode、固定repo ID・visibility・push権限を照合する。変更パス・ファイル数・出力量・秘密らしい文字列も再検査する。baseは許可されたepicだけで、任意root/argv/shell/remoteは入力できない。
+artifactIdはhead SHAとは異なる。成果物ファイル名の64桁hashを使う。taskはsucceededかつleaseと容量hold解放済みである必要がある。SQLiteの完了結果とartifact操作結果、ローカルの保護されたmanifest、Git commitの親/head/blob、実ファイルの内容・mode、固定repo ID・visibility・push権限を照合する。変更パス・ファイル数・出力量・秘密らしい文字列も再検査する。baseは許可されたepicだけで、任意root/argv/shell/remoteは入力できない。
 
 承認は1時間有効。同じkeyの再送は同じ承認を返し、内容変更は409。未予約で期限切れの承認は、新しいkeyと明示承認によってのみ置換できる。旧レコードはsupersededとして保存する。pushまたはPRが一度でも予約された場合は自動置換しない。
 
@@ -46,14 +46,14 @@ workerは単発で、モデル・定期poller・元runを起動しない。`GET 
 
 公開前に現在のepic SHAを照合し、fetchしたそのSHAと成果物の `merge-tree` で競合を検査する。Git refや成果物をrebase/mergeしない。公開先featureは不存在またはexact headだけを許す。pushは空refを期待するcompare-and-swap（空のforce-with-lease）で新規作成し、既存branchを上書きしない。PRは同じrepositoryのexact head・base・draft・タイトル・本文を照合する。既存のclosed/merged/non-draft PRや別内容のPRは停止する。
 
-各外部writeはD1のpublication_operationsへ先に予約する。最初の予約だけがwriteを実行でき、予約済みはremote照合のみ行う。応答喪失後にremoteが一致すれば結果を確定できるが、結果不明ならoperation_blockedで停止する。TTLで予約を消さず、二重送信や別キーでの迂回をしない。完了台帳を再読するときも現remoteを照合する。期限後は既存予約のremote結果記録だけ可能で、新しいwrite予約は不可。
+各外部writeはSQLiteのpublication_operationsへ先に予約する。最初の予約だけがwriteを実行でき、予約済みはremote照合のみ行う。応答喪失後にremoteが一致すれば結果を確定できるが、結果不明ならoperation_blockedで停止する。TTLで予約を消さず、二重送信や別キーでの迂回をしない。完了台帳を再読するときも現remoteを照合する。期限後は既存予約のremote結果記録だけ可能で、新しいwrite予約は不可。
 
-GitHubの変更とD1の更新は分散トランザクションではない。ref/PRの外部変更との完全な原子性やexactly-onceは保証しない。承認後のbase変更、競合、権限変更、成果物変更、不明な副作用では止まり、運用担当が現remoteと承認範囲を再確認する。予約済みの不明結果を強制解除するAPIは提供しない。host subprocessは固定argv・shell:false・10分の独立deadline guardで停止する。
+GitHubの変更とSQLiteの更新は分散トランザクションではない。ref/PRの外部変更との完全な原子性やexactly-onceは保証しない。承認後のbase変更、競合、権限変更、成果物変更、不明な副作用では止まり、運用担当が現remoteと承認範囲を再確認する。予約済みの不明結果を強制解除するAPIは提供しない。host subprocessは固定argv・shell:false・10分の独立deadline guardで停止する。
 
 ## 配備・検証・rollback
 
 `0005_publications.sql` を追加した。control-planeと単発publication workerを同じ版に更新し、migrationを適用してから明示実行する。既存モデルworkerの再起動はこの公開経路には不要。registryの専用許可は別途運用担当が設定する。このPR自体では配備環境・token・成果物・remote branchを変更しない。
 
-検証は実SQLiteの承認/owner/競合/期限/再承認、remote fixtureの応答喪失/重複/変更検出、実Gitの0600/実行可能ファイルと改変拒否、ローカルD1と認証APIを含む。既存の承認済みbrowser成果物は読み取りだけでmanifestとGit内容の照合成功を確認した。実GitHub push/PRは未実施であり、fixture成功を外部公開成功とは扱わない。
+導入時の検証記録：検証は実SQLiteの承認/owner/競合/期限/再承認、remote fixtureの応答喪失/重複/変更検出、実Gitの0600/実行可能ファイルと改変拒否、ローカルD1と認証APIを含む。既存の承認済みbrowser成果物は読み取りだけでmanifestとGit内容の照合成功を確認した。実GitHub push/PRは未実施であり、fixture成功を外部公開成功とは扱わない。
 
 rollback時は新規承認・publication workerを止め、前版へ戻す。追加2テーブルと元run/成果物は保存する。予約済みの副作用を不明のまま削除しない。既存の開発/定期run台帳を変更するdown migrationは不要。

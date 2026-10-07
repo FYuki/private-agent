@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {integrationConfig} from './local-integration.ts';
 import {DevelopmentClient} from '../development/client.ts';
 import {client} from '../wsl-worker/main.ts';
 import {digest} from '../shared/publication.ts';
 import {validationCommands} from '../shared/repositories.ts';
 
-const tokens=JSON.parse(await readFile('.local/tokens.json','utf8')),base=process.env.CONTROL_URL||'http://127.0.0.1:8787/';
+const {tokens,base}=await integrationConfig();
 const viewer=new DevelopmentClient(base,tokens.viewer),worker=client(base,tokens.worker),workerReader=new DevelopmentClient(base,tokens.worker),other=new DevelopmentClient(base,tokens.other);
 assert.equal((await fetch(base+'api/development/publications/00000000-0000-0000-0000-000000000000')).status,401);
 const {id:taskId}=await viewer.submit({repoId:'private-agent',baseRef:'epic/development-runner',goal:'Synthetic publication API lifecycle; no model or remote writes.',acceptanceCriteria:['separate audit log'],orchestratorProfileId:'plan-codex-luna',executionProfileId:'edit-codex-luna'},crypto.randomUUID());
@@ -34,4 +34,4 @@ await worker(endpoint,{name:'pull-request',result:{url:'https://github.com/FYuki
 assert.equal((await viewer.publication(id)).state,'published');
 const after=await viewer.status(taskId);assert.equal(after.state,before.state);assert.equal(after.result,before.result);assert.deepEqual(after.operations,before.operations);
 await assert.rejects(worker('/api/development/tasks/'+taskId+'/operation',{token:run.token,name:'push',fingerprint:'f'.repeat(64)}),/409/);
-console.log(JSON.stringify({localD1:true,publicationApi:true,unauthenticatedDenied:true,roleOwnerIsolation:true,runUnchanged:true,remoteWrites:false,modelCalls:false}));
+console.log(JSON.stringify({localSQLite:true,publicationApi:true,unauthenticatedDenied:true,roleOwnerIsolation:true,runUnchanged:true,remoteWrites:false,modelCalls:false}));

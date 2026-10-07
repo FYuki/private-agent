@@ -1,3 +1,4 @@
+import {verifyCommitRange,type CommitRangeProof} from './commit-range.ts';
 import {readFile,lstat,realpath} from 'node:fs/promises';
 import {join} from 'node:path';
 import {publicationInput,publicationArtifact,uuid,type PublicationInput} from '../shared/publication.ts';
@@ -37,7 +38,7 @@ export async function publishApproved(input:PublicationInput,expiresAt:number,le
 }
 
 /** 保存済みcommitの内容・モード・親・作業領域を読取検証する。外部接続や検証コード実行はない。 */
-export async function verifyPublicationSource(binding:RepositoryBinding,input:PublicationInput,artifact:{contentHash:string},signal:AbortSignal,deadline:bigint){
+export async function verifyPublicationSource(binding:RepositoryBinding,input:PublicationInput,artifact:{contentHash:string;commitRange?:CommitRangeProof},signal:AbortSignal,deadline:bigint){
  const directory=join(binding.worktrees,input.taskId),policy=repositoryPolicy(input.repoId),remote='https://github.com/'+policy.github+'.git';
  if(await realpath(directory)!==directory)throw Error('untrusted_task_path');
  const env={PATH:'/usr/bin:/bin',HOME:process.env.HOME,LANG:'C.UTF-8',GIT_TERMINAL_PROMPT:'0'};
@@ -45,7 +46,11 @@ export async function verifyPublicationSource(binding:RepositoryBinding,input:Pu
 
   if((await git(['rev-parse','--show-toplevel'],binding.root)).trim()!==binding.root||(await git(['rev-parse','--show-toplevel'])).trim()!==directory)throw Error('repository_root_mismatch');
   if(![remote,'git@github.com:'+policy.github+'.git'].includes((await git(['remote','get-url','origin'])).trim()))throw Error('repository_remote_mismatch');
-  if((await git(['rev-parse','HEAD'])).trim()!==input.headSha||(await git(['rev-parse','HEAD^'])).trim()!==input.baseSha||(await git(['status','--porcelain'])).trim())throw Error('artifact_head_changed');
+  if((await git(['rev-parse','HEAD'])).trim()!==input.headSha||(await git(['status','--porcelain'])).trim())throw Error('artifact_head_changed');
+  if(artifact.commitRange){
+   const verified=await verifyCommitRange(git,input.repoId,input.baseSha,input.headSha);
+   if(JSON.stringify(verified)!==JSON.stringify(artifact.commitRange))throw Error('artifact_range_changed');
+  }else if((await git(['rev-parse','HEAD^'])).trim()!==input.baseSha)throw Error('artifact_head_changed');
   const files=(await git(['diff','--name-only','-z',input.baseSha,input.headSha])).split('\0').filter(Boolean).sort();
   if(!files.length||files.length>20)throw Error('change_limit');let bytes=0;const snapshot:unknown[]=[];
   for(const path of files){

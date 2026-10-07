@@ -1,7 +1,9 @@
 import {Fault,LIMITS,jobInput, type Provider,type Run,type Capacity} from '../shared/contracts.ts';
-// A tiny SQL boundary; Workers supplies D1, tests use real SQLite with the same SQL.
+// The SQL boundary is shared by the local SQLite adapter and test doubles.
 export interface Statement {bind(...v:unknown[]):Statement; first<T>():Promise<T|null>; all<T>():Promise<{results:T[]}>; run():Promise<unknown>}
 export interface Database {prepare(sql:string):Statement; batch(s:Statement[]):Promise<unknown>}
+// enqueue前の永続予約以降は監視leaseと実行寿命を分離する。不明な引渡しも再投入しない。
+export const DELEGATED_WATCH_SQL=`EXISTS(SELECT 1 FROM jobs watch_job JOIN development_operations watch_op ON watch_op.task_id=watch_job.id AND watch_op.name='takt' WHERE watch_job.id=runs.job_id AND json_extract(watch_job.spec,'$.executionProfileId')='takt-watch')`;
 export class Store {
   constructor(public db:Database, public now=()=>Date.now()){}
   q(sql:string,...args:unknown[]){return this.db.prepare(sql).bind(...args);}
@@ -16,11 +18,11 @@ export class Store {
     if(!saved)throw new Fault(429,'job_limit');
     if(saved.spec!==spec)throw new Fault(409,'idempotency_conflict');return saved.id;
   }
-  async tick(at=this.now(),owner?:string){
+  async tick(at=this.now(),owner?:string,collectPending=true){
     const jobs=(await this.q(`SELECT * FROM jobs WHERE enabled=1${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string;start_at:number;interval_seconds:number;max_runs:number}>()).results;
     let enqueued=0,skipped=0;
     for(const j of jobs){
-      // Current occurrence only: missed slots are not caught up. A skip never creates a Workflow.
+      // Current occurrence only: missed slots are not caught up.
       const slot=Math.floor((at-j.start_at)/(j.interval_seconds*1000));
       if(slot<0||slot>=j.max_runs)continue;
       const when=j.start_at+slot*j.interval_seconds*1000;
@@ -29,27 +31,38 @@ export class Store {
         WHERE EXISTS(SELECT 1 FROM jobs WHERE id=? AND enabled=1) RETURNING state`,`${j.id}:${slot}`,j.id,j.owner,slot,when,j.id,this.now(),j.id).first<{state:string}>();
       if(r?.state==='starting')enqueued++;if(r?.state==='skipped')skipped++;
     }
-    // Transactional outbox: recover accepted starts after scheduler/Workflow-create failure.
-    const pending=(await this.q(`SELECT id,owner FROM runs WHERE state='starting'${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string}>()).results;
+    // Durable outbox: recover accepted starts after a dispatcher crash.
+    const pending=collectPending?(await this.q(`SELECT id,owner FROM runs WHERE state='starting'${owner?' AND owner=?':''}`, ...(owner?[owner]:[])).all<{id:string;owner:string}>()).results:[];
     return {enqueued,skipped,pending};
   }
   async activate(id:string){
-    await this.q(`UPDATE runs SET state='queued' WHERE id=? AND state='starting'`,id).run();return {id};
+    await this.q(`UPDATE runs SET state='queued' WHERE id=? AND state='starting' AND attempt=0 AND token IS NULL
+      AND EXISTS(SELECT 1 FROM jobs WHERE id=runs.job_id AND owner=runs.owner AND enabled=1)`,id).run();return {id};
   }
+  // Retain the existing Store API; local dispatch leaves failed activation recoverable.
   async failStarting(id:string){
     return this.q(`UPDATE runs SET state='failed',error='workflow_failed' WHERE id=? AND state='starting' AND attempt=0 AND token IS NULL RETURNING id`,id).first<{id:string}>();
   }
   async reap(owner:string){
     await this.q(`UPDATE runs SET state=CASE WHEN attempt>=? OR EXISTS(SELECT 1 FROM jobs WHERE id=runs.job_id AND task_kind='development') THEN 'failed' ELSE 'queued' END,error='lease_expired',lease_until=NULL
-      WHERE owner=? AND state='running' AND lease_until<=? AND deadline+3000<=?`,LIMITS.maxAttempts,owner,this.now(),this.now()).run();
+      WHERE owner=? AND state='running' AND lease_until<=? AND deadline+3000<=? AND NOT (${DELEGATED_WATCH_SQL})`,LIMITS.maxAttempts,owner,this.now(),this.now()).run();
   }
   async claim(owner:string,worker:string,provider?:Provider,group=owner,limits:Capacity={models:{'codex-luna':1,'pi-swe2':1},groups:{[group]:1}},taskKind:'answer'|'development'='answer',executionProfile='edit-codex-luna'){
     if(limits.groups[group]===undefined)throw new Fault(503,'worker_group_not_configured');
     await this.reap(owner); const now=this.now(),token=crypto.randomUUID();
+    if(taskKind==='development'&&executionProfile==='takt-watch'){
+      const existing=await this.q(`SELECT * FROM runs WHERE owner=? AND worker=? AND auth_group=? AND state IN ('running','cancelled') AND hold_until>0 AND ${DELEGATED_WATCH_SQL} ORDER BY due_at,id LIMIT 1`,owner,worker,group).first<Run>();
+      if(existing){const job=await this.q('SELECT provider,prompt,spec,budget_ms FROM jobs WHERE id=?',existing.job_id).first<any>();return {...existing,provider:job.provider,prompt:job.prompt,task_kind:'development' as const,budget_ms:job.budget_ms,development:JSON.parse(job.spec),issued_at:now};}
+    }
     // One atomic conditional UPDATE prevents concurrent claim races across processes.
     const r=await this.q(`UPDATE runs SET state='running',attempt=attempt+1,token=?,worker=?,auth_group=?,lease_until=?,deadline=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id),hold_until=?+(SELECT budget_ms FROM jobs WHERE id=runs.job_id)+3000,started_at=?,error=NULL
       WHERE id=(SELECT r.id FROM runs r JOIN jobs j ON j.id=r.job_id WHERE r.owner=? AND state='queued' AND due_at<=? AND attempt<? AND j.task_kind=? AND ((? IS NULL AND j.provider!='agent-fixture') OR j.provider=?)
         AND (j.task_kind!='development' OR json_extract(j.spec,'$.executionProfileId')=?)
+        AND NOT EXISTS(SELECT 1 FROM json_each(j.spec,'$.watch.dependencies') dependency
+          WHERE NOT EXISTS(SELECT 1 FROM development_tasks dt JOIN runs dr ON dr.job_id=dt.id
+            JOIN development_operations artifact ON artifact.task_id=dt.id AND artifact.name='artifact'
+            WHERE dt.id=dependency.value AND dt.owner=r.owner AND json_extract(dt.spec,'$.repoId')=json_extract(j.spec,'$.repoId')
+              AND dr.state='succeeded' AND dr.hold_until=0 AND artifact.state='completed' AND artifact.result IS NOT NULL))
         AND NOT EXISTS(SELECT 1 FROM json_each(COALESCE(j.resources_json,json_object(j.provider,1))) needed
           WHERE COALESCE((SELECT SUM(used.value) FROM runs occupied JOIN jobs oj ON oj.id=occupied.job_id,
             json_each(COALESCE(oj.resources_json,json_object(oj.provider,1))) used
@@ -64,12 +77,14 @@ export class Store {
   }
   async heartbeat(owner:string,worker:string,id:string,token:string){
     const now=this.now();
-    const r=await this.q(`UPDATE runs SET lease_until=MIN(?,deadline) WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND lease_until>? AND deadline>? RETURNING id`,now+LIMITS.leaseMs,id,owner,worker,token,now,now).first();
+    const cancelled=await this.q(`SELECT id FROM runs WHERE id=? AND owner=? AND worker=? AND token=? AND state='cancelled' AND hold_until>0 AND ${DELEGATED_WATCH_SQL}`,id,owner,worker,token).first();
+    if(cancelled)return {ok:true,cancelRequested:true};
+    const r=await this.q(`UPDATE runs SET lease_until=CASE WHEN ${DELEGATED_WATCH_SQL} THEN ? ELSE MIN(?,deadline) END WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND ((lease_until>? AND deadline>?) OR ${DELEGATED_WATCH_SQL}) RETURNING id`,now+LIMITS.leaseMs,now+LIMITS.leaseMs,id,owner,worker,token,now,now).first();
     if(!r)throw new Fault(409,'lease_lost_or_cancelled');return {ok:true};
   }
   async finish(owner:string,worker:string,id:string,token:string,result:string|null,error:string|null){
     const now=this.now();
-    const r=await this.q(`UPDATE runs SET state=?,result=?,error=?,lease_until=NULL,hold_until=0 WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND ((lease_until>? AND deadline>?) OR ? IS NOT NULL) RETURNING id`,error?'failed':'succeeded',result,error,id,owner,worker,token,now,now,error).first();
+    const r=await this.q(`UPDATE runs SET state=?,result=?,error=?,lease_until=NULL,hold_until=0 WHERE id=? AND owner=? AND worker=? AND token=? AND state='running' AND ((lease_until>? AND deadline>?) OR ? IS NOT NULL OR ${DELEGATED_WATCH_SQL}) RETURNING id`,error?'failed':'succeeded',result,error,id,owner,worker,token,now,now,error).first();
     if(r)return {ok:true,duplicate:false};
     const old=await this.q(`SELECT state,result,error FROM runs WHERE id=? AND owner=? AND worker=? AND token=?`,id,owner,worker,token).first<Run>();
     if(old?.state==='failed'&&old.error==='lease_expired'&&error!==null){
