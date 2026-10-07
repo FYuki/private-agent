@@ -9,6 +9,7 @@ import {watchOrder} from '../development/watch-contract.ts';
 import {watchAcceptanceRuns} from '../development/watch-dev-preflight.ts';
 import {WatchSupervisor} from '../development/watch-supervisor.ts';
 const sandbox=spawnSync('/usr/bin/bwrap',['--unshare-user','--unshare-pid','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--','/usr/bin/true'],{stdio:'ignore'}).status===0;
+if(!sandbox&&process.env.REQUIRE_PID_NAMESPACE==='1')throw Error('required_pid_namespace_unavailable');
 if(!sandbox){console.log(JSON.stringify({watchRuntimeSmoke:'unavailable_pid_namespace',providerExecuted:false}));process.exit(0);}
 const parent=resolve(process.env.WATCH_RUNS_PARENT||'.local/w');
 const dir=watchAcceptanceRuns(parent,crypto.randomUUID().slice(0,4));

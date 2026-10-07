@@ -17,7 +17,7 @@ const settlement=await json(join(root,'settlement.json')),request=await json(joi
 assert.equal(settlement.task,request.id);
 assert.equal(settlement.runs,(await json(join(root,'run-location.json'))).runs);
 const owned=join(settlement.runs,request.id);
-const events=(await readFile(join(owned,'private/activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
+const events=(await readFile(join(owned,'private/activity.ndjson'),'utf8')).split('\n').filter(Boolean).map(x=>JSON.parse(x));
 verifyProviderSettlement(events,request.maxCli);
 assert.equal(settlement.provider.starts,events.filter(x=>x.event==='started').length);
 assert.equal(settlement.provider.closed,settlement.provider.starts);

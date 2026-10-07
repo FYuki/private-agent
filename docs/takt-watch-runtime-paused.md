@@ -25,7 +25,7 @@
 
 ## 未完了・残リスク（入口を開かない理由）
 
-**P1: 正常成功のtask照合が公式TAKTと不一致。** enqueueはorder.mdを保存し、実行時に公式buildTaskInstructionがcontext/task参照の指示文へ変換する。adapterは元orderTextをmeta/session taskと比較するため、正常成功でも拒否する。元order.mdの内容と所有権を別途確認し、公式生成指示文をexpected taskとして照合する修正が必要。
+**P1: 正常成功のtask照合が公式TAKTと不一致（解決済み: [取り込み記録](takt-watch-adapter-integration.md)）。** enqueueはorder.mdを保存し、実行時に公式buildTaskInstructionがcontext/task参照の指示文へ変換する。adapterは元orderTextをmeta/session taskと比較するため、正常成功でも拒否する。元order.mdの内容と所有権を別途確認し、公式生成指示文をexpected taskとして照合する修正が必要。
 
 正常成功→review承認→複数commit import→固定host tests→artifact保存の一続きの公式watch試験は未実施。実Codex/ChatGPTログインによるwatch試験、スマホ画面からのwatch投入、稼働service切替も未実施。失敗stubの成功を実モデル成功と扱わない。defaultの動的reviewer候補をすべて実行済みとは扱わない。
 

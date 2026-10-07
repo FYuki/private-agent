@@ -42,6 +42,16 @@ node --import tsx scripts/watch-execution-control.ts /absolute/runs/<UUID>.execu
 - UT/IT1：監視期限・切断が取消ファイルを作らないこと、永続結果の再読取、61番目のCLIを旧上限で拒否しないこと、明示試験枠の維持。
 - D1：時計を6時間進め、heartbeat無しでも同じrun/token/attemptを回収、他workerの取得拒否、取消後の停止ACKまで枠保持。
 - 公式TAKT＋stub：最初のobserver processを終了、MCP processを強制終了、watch継続とMCP再接続、追加指示、再投入なしの失敗回収、別taskの明示取消とnamespace停止。
-- 全体：型検査、129テスト、dry-run build、公式schema/config/reader、実ローカルD1/Workflowsとrealtime fixture。
+- 寿命分離修正時点（`5b2510c`）：型検査、129テスト、dry-run build、公式schema/config/reader、実ローカルD1/Workflowsとrealtime fixture。
 
 6時間の実時間・実モデル運転や、公式default成功→host→artifactのlive完走を実施済みとは扱わない。通常runnerの `watch_runtime_validation_pending`、本番cron無効、公開承認境界は維持する。今回のmain向けPRは寿命分離の修正であり、本番有効化やmain mergeは別操作。
+
+## PR20レビュー修正の検証（2026-10-07）
+
+取消済みrunの再claimはoperation開始前に実行所有者へ取消を配送し、永続終端の確認後だけD1へ停止ACKを返す。停止未確認の終端ではholdを維持する。完了を観測した時点のrunSlugを使い、完了後のMCP再要求やMCP close失敗をnamespace停止未確認と混同しない。process identity照合前後の結果保存競合も回帰試験に含めた。
+
+通常profileは `available:false` / `watch_runtime_validation_pending` を返す。dev受入だけがlocalhost設定の `WATCH_ACCEPTANCE_ENABLED=true` と内部 `allowWatchTest` を明示する。公開payloadからこのフラグを指定することはできず、通常runnerのガードは維持する。
+
+135テスト、型検査、dry-run build、公式schema/config/binding、全ローカルD1/Workflows統合、公式TAKTの切断・再接続・追加指示・明示取消stubを確認した。CIはSol枠を明示してwatch lease取得を必須化し、PID namespace非対応時を成功扱いしない。CIではUbuntu 22.04にbubblewrapと隔離環境内のNode 24を明示導入する。CI自体の結果は各PR headのcheckを参照する。
+
+準備証跡JSONの124件、寿命分離時点の129件は各時点の履歴として保持する。これらのstub成功・時計を進めたD1試験は、実モデルの統合完走や6時間耐久の証明ではない。

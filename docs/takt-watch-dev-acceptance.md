@@ -8,7 +8,7 @@
 
 新規`takt-watch` taskはD1でplan系列Solの1枠と共有groupの1枠を予約する。coding、review、selectorは追加jobとして数えない。現対応はplanが`gpt-6-sol`または`gpt-6.1-sol`の構成だけで、Luna planは`plan_job_family_mismatch`としてモデル開始前に拒否する。Luna planを対応させる際は、受付側のprofileとworker側の解決結果をともに変更する。既存taskの予約値は書き換えない。
 
-公式defaultのparallel reviewを保ち、外側CLI全体の直列lockを廃止した。短い排他区間で起動回数だけを原子的に予約し、各CLIは独立PID namespaceで実行する。最大60 CLI、1起動300秒、出力4MiB。全起動の終了を照合するまで成功を受理しない。起動失敗も消費済みとし、未確認lockを時間だけで奪わない。これはSDK内部のmodel request数の計測・課金上限ではない。
+公式defaultのparallel reviewを保ち、外側CLI全体の直列lockを廃止した。短い排他区間で起動回数だけを原子的に予約し、各CLIは独立PID namespaceで実行する。従前の有限試験は最大60 CLI・1起動300秒だった。通常watchにはこの固定上限を適用しない（[現行契約](takt-watch-lifetime.md)）。出力4MiBは維持する。全起動の終了を照合するまで成功を受理しない。起動失敗も消費済みとし、未確認lockを時間だけで奪わない。これはSDK内部のmodel request数の計測・課金上限ではない。
 
 6.1 Sol xhighはwatchの許可済み候補へ追加し、従来simpleのallowlistは変えない。元`examples/takt/runtime.yaml`と工程別設定は変更していない。dev受入は提供v3の`live-isolated-runtime.yaml`をコピーし、SHA-256 `89140cbb8d83ca51a94ae3f2e471a219764a79531feb131514468b65a11fcefa`で束縛する。plan=6.1 Sol xhigh、coding/review=6 Sol medium、default/selector=Luna xhigh、assistant等はコピーの設定を維持する。
 
@@ -52,7 +52,7 @@ secret不要検証は型検査、124テスト、dry-run build、公式schema／r
 
 本人から「TAKTによる実装は長い場合6時間に及ぶ」と指摘を受けた。以下の60分案をそのまま承認依頼・実行へ進めない。実装委譲先はTAKTであり、PrivateAgentには長時間の受付・lease更新・監視・取消・停止確認・成果物回収が必要。
 
-現コードのD1受付はTAKTジョブを最大24時間、既定4時間で受ける。一方、watch adapter/wrapperには最大60 CLI・各300秒が固定され、受入入口は最大60分に制限されている。6時間という全体時間だけではCLI回数や1 CLIの許容時間は決まらない。タスク全体の期限、個別CLIの時間、無進捗判定、呼出回数を分け、TAKT workflow側の制御との責務を整理する。6時間ジョブと、その後のhost検証・artifact保存の時間を扱える契約を先に定める。
+寿命分離修正前のD1受付はTAKTジョブを最大24時間、既定4時間で受ける。一方、watch adapter/wrapperには最大60 CLI・各300秒が固定され、受入入口は最大60分に制限されていた。現在の通常watchは[寿命分離](takt-watch-lifetime.md)によりこの固定上限を廃止した。6時間という全体時間だけではCLI回数や1 CLIの許容時間は決まらない。タスク全体の期限、個別CLIの時間、無進捗判定、呼出回数を分け、TAKT workflow側の制御との責務を整理する。6時間ジョブと、その後のhost検証・artifact保存の時間を扱える契約を先に定める。
 
 短い実モデル試験は配線確認に限り、長時間運用の受入とは区別する。長時間のlease維持・期限境界・取消・再起動後の状態照合はsecret不要試験で検証し、実モデルで測る範囲と予算を改めて提示する。今回の6時間という利用実態の説明を、6時間の実モデル試験予算承認とは扱わない。
 

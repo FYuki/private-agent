@@ -36,7 +36,7 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
  await processOutput(process.execPath,[fileURLToPath(new URL('./watch-runtime-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir,clones,order.workflow],root,'',signal,commandDeadline(),env);
  const compiled=JSON.parse(await readFile(join(configDir,'watch-compiled.json'),'utf8'));
  const task=orderText(order);let client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);
- const supervisor=new WatchSupervisor(join(runRoot,'supervisor.db'));let started=false,stopped=false;
+ const supervisor=new WatchSupervisor(join(runRoot,'supervisor.db'));let started=false,stopped=false,completedSlug:string|undefined;
  let cancellation:Promise<void>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
  const cancelNow=()=>{if(started&&!stopped&&!cancellation)cancellation=supervisor.cancel(owner,root).then(()=>{stopped=true;}).catch(()=>{throw Error('watch_stop_unconfirmed');});cancellation?.catch(()=>{});};
  try{
@@ -71,13 +71,12 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
     continue;
    }
    if(tasks.length!==1||tasks[0].name!==queued.taskName||tasks[0].summary!==policy.marker)throw Error('watch_task_identity_changed');
-   if(tasks[0].status==='completed')break;
+   if(tasks[0].status==='completed'){if(!tasks[0].runSlug)throw Error('watch_completion_mismatch');completedSlug=tasks[0].runSlug;break;}
    if(!['pending','running'].includes(tasks[0].status))throw Error('watch_task_failed');
    await new Promise(r=>setTimeout(r,250));
   }
   await supervisor.stop(owner,root,10000);stopped=true;
-  const completed=await client.list();if(completed.length!==1||!completed[0].runSlug)throw Error('watch_completion_mismatch');
-  const binding=JSON.parse(await processOutput(process.execPath,[fileURLToPath(new URL('./watch-run-binding.mjs',import.meta.url)),config.taktRuntime,root,configDir,clones,queued.taskName,completed[0].runSlug,order.workflow],root,task,signal,commandDeadline(),env));
+  const binding=JSON.parse(await processOutput(process.execPath,[fileURLToPath(new URL('./watch-run-binding.mjs',import.meta.url)),config.taktRuntime,root,configDir,clones,queued.taskName,completedSlug,order.workflow],root,task,signal,commandDeadline(),env));
   const expectedTask=binding.executionTask;
   const clone=binding.clone,headSha=(await git(['rev-parse','HEAD'],clone)).trim();
   if((await git(['rev-parse','refs/heads/'+binding.branch])).trim()!==headSha||(await git(['status','--porcelain'],clone)).trim())throw Error('watch_head_mismatch');
@@ -98,7 +97,8 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
   clearTimeout(timer);signal.removeEventListener('abort',cancelNow);let unconfirmed=false;
   if(cancellation){try{await cancellation;}catch{unconfirmed=true;}}
   if(started&&!stopped){try{await supervisor.cancel(owner,root);stopped=true;}catch{unconfirmed=true;}}
-  try{await client.close();}catch{unconfirmed=true;}try{supervisor.close();}catch{unconfirmed=true;}
+  // MCPの終了はwatch namespaceの停止証明とは独立。
+  await client.close().catch(()=>{});try{supervisor.close();}catch{unconfirmed=true;}
   if(unconfirmed)throw Error('watch_stop_unconfirmed');
  }
 }

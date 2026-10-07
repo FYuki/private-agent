@@ -1,3 +1,4 @@
+import {watchHeartbeat} from '../development/watch-heartbeat.ts';
 // 明示的なdev専用入口。通常runnerのwatchガードを変更しない。新規のローカルD1/合成Gitだけを使用する。
 import {mkdir,writeFile,readFile,copyFile,realpath} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
@@ -59,14 +60,14 @@ const prepared=join(root,'compiled');await mkdir(prepared);await command(process
 const compiled=JSON.parse(await readFile(join(prepared,'watch-compiled.json'),'utf8'));assert.ok(compiled.candidates.some((x:any)=>x.model==='gpt-6.1-sol'));assert.deepEqual(compiled.jobResources,{'codex-sol':1});
 const tokens={viewer:Buffer.from(randomBytes(32)).toString('base64url'),worker:Buffer.from(randomBytes(32)).toString('base64url')};
 const auth=Object.entries(tokens).map(([id,token])=>({id,role:id,owner:'local',group:'local',hash:createHash('sha256').update(token).digest('hex')}));
-const wrangler=JSON.parse(await readFile('wrangler.jsonc','utf8'));wrangler.main=resolve('control-plane/index.ts');wrangler.vars.LIMITS_JSON=JSON.stringify({models:{'codex-sol':1,'codex-luna':0,'pi-swe2':0},groups:{local:1}});wrangler.d1_databases[0].migrations_dir=resolve('control-plane/migrations');
+const wrangler=JSON.parse(await readFile('wrangler.jsonc','utf8'));wrangler.main=resolve('control-plane/index.ts');wrangler.vars.WATCH_ACCEPTANCE_ENABLED='true';wrangler.vars.LIMITS_JSON=JSON.stringify({models:{'codex-sol':1,'codex-luna':0,'pi-swe2':0},groups:{local:1}});wrangler.d1_databases[0].migrations_dir=resolve('control-plane/migrations');
 await writeFile(join(root,'wrangler.json'),JSON.stringify(wrangler));await writeFile(join(root,'.dev.vars'),"AUTH_JSON='"+JSON.stringify(auth)+"'\n",{mode:0o600});
 const cli=resolve('node_modules/wrangler/bin/wrangler.js'),common=['--config',join(root,'wrangler.json')],persist=join(root,'d1');
 execFileSync(process.execPath,[cli,'d1','migrations','apply','private-agent-local','--local','--persist-to',persist,...common],{cwd:root,env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:'pipe'});
 const port=18797,base='http://127.0.0.1:'+port+'/';
 const server=spawn(process.execPath,[cli,'dev','--local','--ip','127.0.0.1','--port',String(port),'--persist-to',persist,...common],{cwd:root,env:{...process.env,WRANGLER_SEND_METRICS:'false'},stdio:['ignore','pipe','pipe'],detached:true});
 let output='';server.stdout.on('data',b=>{output=(output+b).slice(-20000);});server.stderr.on('data',b=>{output=(output+b).slice(-20000);});
-const viewer=new DevelopmentClient(base,tokens.viewer),api=client(base,tokens.worker);let run:Run|undefined,heartbeat:ReturnType<typeof setInterval>|undefined;
+const viewer=new DevelopmentClient(base,tokens.viewer,{allowWatchTest:true}),api=client(base,tokens.worker);let run:Run|undefined,heartbeat:ReturnType<typeof setInterval>|undefined;
 try{
  for(let i=0;i<100;i++){if(server.exitCode!==null)throw Error('dev_server_exit');try{await viewer.profiles();break;}catch{if(i===99)throw Error('dev_server_unavailable');await new Promise(r=>setTimeout(r,200));}}
  assert.equal((await fetch(base+'api/state')).status,401);
@@ -76,7 +77,8 @@ try{
  await api('/api/development/runner-heartbeat',{available:true,executionProfile:'takt-watch'});
  run=await api('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:'takt-watch'}) as Run;assert.equal(run.job_id,id);
  await git(['switch','-c','feature/development-task-'+id]);
- const leased=run;heartbeat=setInterval(()=>{void api('/api/runs/'+leased.id+'/heartbeat',{token:leased.token}).then(async state=>{if((state as {cancelRequested?:boolean}).cancelRequested)await cancelWatchExecution(config,leased.job_id,'local');}).catch(()=>stop.abort());},10000);
+ const leased=run,tick=watchHeartbeat(async()=>await api('/api/runs/'+leased.id+'/heartbeat',{token:leased.token}) as {cancelRequested?:boolean},()=>cancelWatchExecution(config,leased.job_id,'local'),phase=>console.error(JSON.stringify({phase:phase+'_retry_pending'})));
+ heartbeat=setInterval(()=>{void tick();},10000);
  const ledger:Ledger=(name,fingerprint,result)=>api('/api/development/tasks/'+id+'/operation',{token:leased.token,name,fingerprint,...(result===undefined?{}:{result})}) as ReturnType<Ledger>;
  await writeFile(join(root,'request.json'),JSON.stringify({id,spec,inputHash,budgetMs,maxCli,callWallMs:300000,stub,publication:false},null,2),{mode:0o600});
  console.log(JSON.stringify({phase:'claimed',id,jobResources:compiled.jobResources,inputHash,budgetMs,maxCli,callWallMs:300000,stub,publication:false}));

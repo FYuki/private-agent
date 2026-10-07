@@ -4,9 +4,9 @@ import { DEVELOPMENT_BUDGET_MS, developmentInput } from '../shared/development.t
 
 /** 単発開発taskを既存run/lease台帳へ関連付ける。定期jobの60秒予算は変更しない。 */
 export class DevelopmentStore {
-  constructor(private store: Store) {}
+  constructor(private store: Store, private options: {allowWatchTest?:boolean} = {}) {}
   async submit(owner: string, requestKey: string, value: unknown) {
-    const input = developmentInput(value), spec = JSON.stringify(input), s = this.store;
+    const input = developmentInput(value,this.options), spec = JSON.stringify(input), s = this.store;
     const old = await s.q('SELECT id,spec FROM development_tasks WHERE owner=? AND request_key=?', owner, requestKey).first<{ id: string; spec: string }>();
     if (old) { if (old.spec !== spec) throw new Fault(409, 'idempotency_conflict'); return old.id; }
     // 既存の同owner・同repo taskだけを参照するため、未来参照や循環は作れない。
