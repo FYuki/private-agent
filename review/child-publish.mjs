@@ -22,7 +22,7 @@ export function matchingPullRequest(list, context, sha) {
   if (!list.length) return undefined;
   if (list.length !== 1) throw Error('ambiguous_child_pull_request');
   const pr = list[0];
-  if (pr.baseRefName !== context.epic || pr.headRefName !== context.branch || pr.headRefOid !== sha || pr.isCrossRepository) throw Error('existing_pull_request_mismatch');
+  if (pr.baseRefName !== context.epic || pr.headRefName !== context.branch || pr.headRefOid !== sha || pr.isCrossRepository || pr.isDraft !== true) throw Error('existing_pull_request_mismatch');
   const prefix = `https://github.com/${context.repo}/pull/`;
   if (!pr.url.toLowerCase().startsWith(prefix.toLowerCase()) || !/^\d+$/.test(pr.url.slice(prefix.length))) throw Error('invalid_pull_request_url');
   return pr.url;
@@ -37,7 +37,7 @@ export async function publishChildIssue(context, runDir, dependencies = {}) {
   if (JSON.stringify(receipt.context) !== JSON.stringify(context) || receipt.approved !== true || git(['rev-parse', 'HEAD']) !== receipt.head || git(['status', '--porcelain'])) throw Error('approved_sources_changed');
   const remoteBase = git(['ls-remote', '--heads', 'origin', `refs/heads/${context.epic}`]).split(/\s/)[0];
   if (remoteBase !== receipt.baseSha) throw Error('epic_base_changed');
-  const find = () => JSON.parse(gh(['pr', 'list', '--repo', context.repo, '--state', 'open', '--head', context.branch, '--json', 'url,baseRefName,headRefName,headRefOid,isCrossRepository']));
+  const find = () => JSON.parse(gh(['pr', 'list', '--repo', context.repo, '--state', 'open', '--head', context.branch, '--json', 'url,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft']));
   const existing = find();
   if (existing.length) matchingPullRequest(existing, context, existing[0].headRefOid);
   // 公開先の変更を防ぐ。pushは通常のfast-forwardのみ、レビュー済みSHAを明示する。

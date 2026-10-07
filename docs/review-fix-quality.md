@@ -49,6 +49,37 @@ npm run review:prepare -- --development takt --project /absolute/target-worktree
 
 子Issue用の入口は`npm run child-issue`。既存の子Issue worktreeを指定し、同じブランチで実装→必須レビュー→修正/検証/再レビュー→commit→push→Epic宛draft PRまで実行する。レビュー用の別ブランチを作らず、mainへは公開しない。
 
+```mermaid
+flowchart TD
+    start["子Issueを同じworktree・ブランチで実行"] --> route{"開発経路"}
+    route -->|TAKT内| simple["simpleで実装・案件レビュー"]
+    simple --> supervise{"superviseの判定"}
+    simple -->|失敗・質問のみで終了| stop["停止・PRを作成しない"]
+    supervise -->|APPROVE| taktReview["必須品質review-fix"]
+    supervise -->|失敗・BLOCKED| stop
+    route -->|非TAKT| external["信頼済み実装コマンド"]
+    external --> implemented{"実装成功"}
+    implemented -->|はい| externalReview["review-fix: 必須品質＋固定AIアンチパターン＋LLM選択facet"]
+    implemented -->|いいえ| stop
+    taktReview --> adjudication["指摘裁定"]
+    externalReview --> adjudication
+    adjudication -->|修正対象あり| fix["同じworktree・ブランチで修正・検証"]
+    fix --> rereview["経路別の必須品質レビューを再実行"]
+    rereview --> adjudication
+    adjudication -->|修正対象なし| gate{"最終ゲート"}
+    gate -->|REJECT| fix
+    gate -->|APPROVE| evidence["今回runの最後の品質レビューと最終ゲートの承認証跡を確認"]
+    taktReview -->|失敗・BLOCKED| stop
+    externalReview -->|失敗・BLOCKED| stop
+    adjudication -->|失敗・need_replan| stop
+    fix -->|失敗・BLOCKED| stop
+    gate -->|BLOCKED・異常終了| stop
+    evidence -->|不合格| stop
+    evidence -->|合格| prepublish{"公開前にHEAD・worktree・Epic SHAを照合"}
+    prepublish -->|不一致| stop
+    prepublish -->|一致| draft["子Issueブランチ → epic/review-ai 宛draft PR"]
+```
+
 ```bash
 npm run child-issue -- \
   --project /absolute/child-issue-worktree \
