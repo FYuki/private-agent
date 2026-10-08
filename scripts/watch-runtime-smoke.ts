@@ -18,16 +18,16 @@ const repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=dir,auth=join(dir,'fixtur
 for(const p of [repo,pkg,join(pkg,'bin')])await mkdir(p);
 await writeFile(auth,'{"fixture":true}',{mode:0o600});
 // 明確な失敗stub。公式watch→SDK→内側sandboxの到達だけを検証し、実モデル成功と混同しない。
-await writeFile(join(pkg,'bin/codex.js'),`const {execFileSync,spawnSync}=require('node:child_process');const {writeFileSync,globSync,readlinkSync,readFileSync}=require('node:fs');
-const alias=globSync('/tmp/**/clones/*').find(p=>{try{return readlinkSync(p)==='/workspace';}catch{return false;}});
+await writeFile(join(pkg,'bin/codex.js'),`const {execFileSync,spawnSync}=require('node:child_process');const {writeFileSync,globSync,readlinkSync,readFileSync,existsSync}=require('node:fs');
+const alias=globSync(${JSON.stringify(join(runs,'*','clones','*'))}).find(p=>{try{return readlinkSync(p)==='/workspace';}catch{return false;}});
 if(!alias||readFileSync(alias+'/README.md','utf8')!=='synthetic')throw Error('original_cwd_alias_missing');
 const head=execFileSync('/usr/bin/git',['-C','/workspace','rev-parse','HEAD'],{encoding:'utf8'}).trim();
 if(!/^[a-f0-9]{40}$/.test(head)||spawnSync('/usr/bin/git',['-C','/workspace','update-ref','refs/heads/forbidden',head]).status===0)throw Error('snapshot_not_readonly');
-writeFileSync('/workspace/review-git-verified',head);setTimeout(()=>{process.stderr.write('synthetic_provider_failure\\n');process.exitCode=7;},5000);`,{mode:0o600});
+writeFileSync('/workspace/review-git-verified',head);const timer=setInterval(()=>{if(existsSync('/workspace/stub-release')){clearInterval(timer);process.stderr.write('synthetic_provider_failure\\n');process.exitCode=7;}},100);`,{mode:0o600});
 const git=(args:string[])=>execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:repo,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 git(['init','--initial-branch=epic/transport-playback']);git(['remote','add','origin','https://github.com/FYuki/local-GPT-live.git']);await writeFile(join(repo,'README.md'),'synthetic');git(['add','.']);git(['commit','-m','fixture']);
 const id=crypto.randomUUID(),base=git(['rev-parse','HEAD']),order=watchOrder({id,repoId:'local-GPT-live',issue:1,requirements:'Synthetic failure fixture',acceptance:['Never call a real provider'],validation:['Host synthetic failure check'],workflow:'private-agent-child-issue',baseRef:'epic/transport-playback'});
-const config={taktRuntime:resolve('runtime/takt'),taktInputs:resolve('examples/takt'),taktRuns:runs,codexPackage:pkg,authFile:auth,dependencies:resolve('node_modules'),maxProviderCalls:2,watchLimits:{callMs:10000,wallMs:60000}};
+const config={taktRuntime:resolve('runtime/takt'),taktInputs:resolve('examples/takt'),taktRuns:runs,codexPackage:pkg,authFile:auth,dependencies:resolve('node_modules'),maxProviderCalls:2,watchLimits:{callMs:30000,wallMs:90000}};
 // 最初のobserverを別processで終了させ、実行が生きたまま再接続する。
 const observer=join(dir,'observer.mjs');
 await writeFile(observer,`import {executeWatch} from ${JSON.stringify(new URL('../development/watch-adapter.ts',import.meta.url).href)};try{await executeWatch(${JSON.stringify(config)},${JSON.stringify(repo)},${JSON.stringify(base)},'fixture',${JSON.stringify(order)},AbortSignal.timeout(500),process.hrtime.bigint()+1000000000n);throw Error('expected_detach');}catch(e){if(e.message!=='watch_observation_detached')throw e;}`);
@@ -44,6 +44,8 @@ for(let i=0;;i++){const pid=await mcpChild();if(pid&&pid!==oldMcp)break;if(i>100
 await tellWatchExecution(config,id,'fixture','fixture-note','Synthetic host observation: no live model is used.');
 await assert.rejects(tellWatchExecution(config,id,'fixture','fixture-note','changed'),/idempotency_conflict/);
 await assert.rejects(executeWatch(config,repo,base,'other',order,new AbortController().signal,process.hrtime.bigint()+1000000000n),/identity_conflict/);
+const runningClones=await readdir(join(runs,id,'clones'));assert.equal(runningClones.length,1);
+await writeFile(join(runs,id,'clones',runningClones[0],'stub-release'),'release');
 await assert.rejects(executeWatch(config,repo,base,'fixture',order,new AbortController().signal,process.hrtime.bigint()+90000000000n),/watch_task_failed/);
 const events=(await readFile(join(runs,id,'private/activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
 const clones=await readdir(join(runs,id,'clones'));assert.equal(clones.length,1);assert.equal(await readFile(join(runs,id,'clones',clones[0],'review-git-verified'),'utf8'),base);
