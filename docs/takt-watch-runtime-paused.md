@@ -1,5 +1,8 @@
 # watch runtime 開発停止点と再開状況（2026-10-05）
 
+2026-10-08 UTC追記：[Issue29の実接続](evidence/watch-review-issue29.md)で、必須レビューを含むwatchから成果物・Epic宛draft PRまで成功した。通常profileへの運用切替は未実施。以下の過去試験記録は保持する。
+
+
 2026-10-07：本人が[実行寿命の分離](takt-watch-lifetime.md)の修正・確認をmain向けPRまで進めることを指示。下記の「main/epicへこのスライスをマージしない」は過去の停止点であり、このPR準備を禁止する現在の指示ではない。本番有効化とmain mergeは行わない。
 
 現在のジョブ枠・並列CLI・6.1 Sol契約とdev受入は [takt-watch-dev-acceptance.md](takt-watch-dev-acceptance.md) を参照。以下の未対応・直列化の記述は前slice時点の記録。通常runnerのガードは現在も維持する。

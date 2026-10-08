@@ -1,6 +1,6 @@
 # watchから必須レビュー・draft PRへの接続
 
-通常の`takt-watch` profileは、正常実モデルによる一連の受入が完了するまで利用不可。接続の受入は`watch-review-acceptance.ts`から行う。旧watchの開発用`default` / `simple`はrunnerの公開経路では拒否する。
+[Issue29の正常実モデルによる全経路受入](evidence/watch-review-issue29.md)は成功済み。通常の`takt-watch` profileへの運用切替は未実施で、通常入口のガードを維持する。接続の受入は`watch-review-acceptance.ts`から行う。旧watchの開発用`default` / `simple`はrunnerの公開経路では拒否する。
 
 ```mermaid
 flowchart TD
@@ -48,4 +48,4 @@ state directoryにSQLite・再接続用identity・evidenceを保存する。同�
 - 公式loader/Engine: 必須reviewerの解決・修正ループ・質問のみ/blockedの拒否・実NDJSONの合格判定。
 - namespace付き公式watch＋失敗stub: 再接続・tell・取消・Git参照の読取専用性。
 - 実Git/worktree＋GitHub/provider置換: artifactからEpic draft PRの配線、重複防止、取消・base更新・不合格時の公開拒否。
-- 正常実モデル→watch→artifact→実GitHub PR: 対象子Issueを指定して別途受入。上記fixture成功をこの実接続成功やCodeRabbit同等品質とは扱わない。
+- 正常実モデル→watch→artifact→実GitHub PR: Issue29で受入済み。修正ループ・品質同等性など検証範囲は[実接続記録](evidence/watch-review-issue29.md)を参照。
