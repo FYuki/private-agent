@@ -18,7 +18,9 @@ const repo=join(dir,'repo'),pkg=join(dir,'codex'),runs=dir,auth=join(dir,'fixtur
 for(const p of [repo,pkg,join(pkg,'bin')])await mkdir(p);
 await writeFile(auth,'{"fixture":true}',{mode:0o600});
 // 明確な失敗stub。公式watch→SDK→内側sandboxの到達だけを検証し、実モデル成功と混同しない。
-await writeFile(join(pkg,'bin/codex.js'),`const {execFileSync,spawnSync}=require('node:child_process');const {writeFileSync}=require('node:fs');
+await writeFile(join(pkg,'bin/codex.js'),`const {execFileSync,spawnSync}=require('node:child_process');const {writeFileSync,globSync,readlinkSync,readFileSync}=require('node:fs');
+const alias=globSync('/tmp/**/clones/*').find(p=>{try{return readlinkSync(p)==='/workspace';}catch{return false;}});
+if(!alias||readFileSync(alias+'/README.md','utf8')!=='synthetic')throw Error('original_cwd_alias_missing');
 const head=execFileSync('/usr/bin/git',['-C','/workspace','rev-parse','HEAD'],{encoding:'utf8'}).trim();
 if(!/^[a-f0-9]{40}$/.test(head)||spawnSync('/usr/bin/git',['-C','/workspace','update-ref','refs/heads/forbidden',head]).status===0)throw Error('snapshot_not_readonly');
 writeFileSync('/workspace/review-git-verified',head);setTimeout(()=>{process.stderr.write('synthetic_provider_failure\\n');process.exitCode=7;},5000);`,{mode:0o600});

@@ -23,6 +23,8 @@ export function watchProviderArgs(cwd,args,policy){
  '--ro-bind','/etc/ssl','/etc/ssl','--ro-bind','/etc/resolv.conf','/etc/resolv.conf','--ro-bind','/etc/hosts','/etc/hosts'];
  const takt=join(cwd,'.takt');if(lstatSync(takt).isDirectory()&&realpathSync(takt)===takt)out.push('--ro-bind',takt,'/workspace/.takt');else throw Error('watch_clone_control_denied');
  const schema=args.indexOf('--output-schema');if(schema>=0){const p=args[schema+1],s=lstatSync(p);if(realpathSync(p)!==p||!s.isFile()||s.size>1048576)throw Error('schema_denied');out.push('--dir',dirname(p),'--ro-bind',p,p);}
+ // TAKTがpromptへ埋める絶対cwd/report pathも、同じ隔離workspaceへ解決する。
+ out.push('--dir',dirname(cwd),'--symlink','/workspace',cwd);
  return [...out,'--setenv','HOME','/home/runner','--setenv','CODEX_HOME','/home/runner/.codex','--setenv','PATH','/usr/bin:/bin','--setenv','LANG','C.UTF-8','--chdir','/workspace','--','/usr/bin/node','/opt/codex/bin/codex.js',...args];
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
