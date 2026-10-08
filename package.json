@@ -18,7 +18,10 @@
     "mcp:development": "tsx development/mcp.ts",
     "test:integration": "tsx scripts/integration.ts",
     "test:local": "tsx scripts/local-integration-run.ts",
-    "build": "npm run check && node scripts/build.mjs"
+    "build": "npm run check && node scripts/build.mjs",
+    "review:prepare": "node review/cli.mjs",
+    "test:review": "node --test scripts/review/*.test.mjs && node scripts/review/engine-check.mjs",
+    "child-issue": "node review/child-cli.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
