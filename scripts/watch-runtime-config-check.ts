@@ -3,10 +3,12 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 const dir=await mkdtemp(join(tmpdir(),'watch-runtime-config-'));for(const name of ['default','simple','private-agent-child-issue']){
  const output=join(dir,name);await mkdir(output);
  execFileSync(process.execPath,['development/watch-runtime-prepare.mjs',resolve('runtime/takt'),resolve('examples/takt'),output,join(dir,'clones'),name],{stdio:'pipe'});
  const compiled=JSON.parse(await readFile(join(output,'watch-compiled.json'),'utf8'));
+ if(name!=='simple')assert.equal(compiled.references.peer,'builtin:sha256:'+createHash('sha256').update('/opt/takt-runtime/node_modules/takt/builtins/ja/workflows/peer-review.yaml').digest('hex'));
  assert.equal(compiled.maxProviderProcesses,60);assert.deepEqual(compiled.jobResources,{'codex-sol':1});assert.ok(compiled.candidates.length>5);assert.ok(compiled.candidates.every((x:any)=>x.executed===false));
  if(name==='private-agent-child-issue'){assert.ok(compiled.references.quality);assert.ok(compiled.candidates.some((x:any)=>x.target.endsWith('/quality-review')));}
  if(name==='default'){assert.ok(compiled.references.peer);assert.ok(compiled.candidates.some((x:any)=>x.target.includes('ai-antipattern')));}

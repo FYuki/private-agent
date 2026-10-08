@@ -11,7 +11,7 @@ const scope=(e:Event)=>{
 };
 /**
  * 公式0.68.0の実NDJSONで、同じ呼出し内の必須品質レビューと最終gateを照合する。
- * call開始は名前、完了は内容hashを記録し、call自身のstep_completeは記録しない。
+ * call開始は名前、完了はsource path由来のopaque refを記録し、call自身のstep_completeは記録しない。
  * 古い承認や別callの承認は借用しない。ログの出所と対象HEADはadapterで検証する。
  */
 export function acceptedChildReviewResult(meta:unknown,events:unknown[],expected:ChildReviewExpected){

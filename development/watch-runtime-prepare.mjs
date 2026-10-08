@@ -1,5 +1,5 @@
 import {readFileSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {join,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const [runtime,input,output,clones,workflow]=process.argv.slice(2);
 if(!['default','simple','private-agent-child-issue'].includes(workflow))throw Error('workflow_not_allowed');
@@ -27,6 +27,12 @@ if(workflow==='private-agent-child-issue'){
 process.env.TAKT_CONFIG_DIR=output;
 const {loadWorkflow,resolveWorkflowCallTarget}=await mod('takt/dist/infra/config/loaders/workflowLoader.js');
 const {getWorkflowReference}=await mod('takt/dist/core/workflow/workflow-reference.js');
+const {getWorkflowSourcePath,getAttachedWorkflowTrustInfo,buildOpaqueWorkflowRef}=await mod('takt/dist/shared/workflowConfigMetadata.js');
+// 公式opaque refは内容ではなく絶対source pathのhash。実行namespace内のruntime配置で照合する。
+const runtimeReference=w=>{
+ const source=getWorkflowSourcePath(w);
+ return source?.startsWith(runtime+'/')?buildOpaqueWorkflowRef(join('/opt/takt-runtime',relative(runtime,source)),getAttachedWorkflowTrustInfo(w)):getWorkflowReference(w);
+};
 const w=loadWorkflow(workflow,output);if(!w)throw Error('builtin_missing');
 const {compileRuntimeProviderEnvironment}=await mod('takt/dist/infra/config/runtime-provider/environment.js');
 const {OptionsBuilder}=await mod('takt/dist/core/workflow/engine/OptionsBuilder.js');
@@ -68,12 +74,12 @@ for(const seat of ['assistant','selector','review-completion-judge']){
 let references={};
 if(workflow==='default'){
  const core=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='develop'),output),peer=resolveWorkflowCallTarget(core,core.steps.find(s=>s.name==='peer-review'),output);
- references={default:getWorkflowReference(w),core:getWorkflowReference(core),peer:getWorkflowReference(peer)};
+ references={default:runtimeReference(w),core:runtimeReference(core),peer:runtimeReference(peer)};
 }
 if(workflow==='private-agent-child-issue'){
  const fix=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='quality-review-fix'),output);
  const peer=resolveWorkflowCallTarget(fix,fix.steps.find(s=>s.name==='reviewers'),output);
  const quality=resolveWorkflowCallTarget(peer,peer.steps.find(s=>s.name==='initial-reviewers'),output);
- references={child:getWorkflowReference(w),fix:getWorkflowReference(fix),peer:getWorkflowReference(peer),quality:getWorkflowReference(quality)};
+ references={child:runtimeReference(w),fix:runtimeReference(fix),peer:runtimeReference(peer),quality:runtimeReference(quality)};
 }
 writeFileSync(join(output,'watch-compiled.json'),JSON.stringify({workflow,references,candidates,jobResources:{'codex-sol':1},maxProviderProcesses:60,maxProviderCalls:60,providerCallMs:300000,conditionalReviewers:true}),{mode:0o600,flag:'wx'});
