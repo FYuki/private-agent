@@ -71,15 +71,20 @@ for(const seat of ['assistant','selector','review-completion-judge']){
  const a=p.targets?.internal_agents?.[seat]??p.defaults,v=p.profiles[a.profile];
  check({provider:v.provider,model:v.model,providerOptions:{codex:{reasoningEffort:v.options?.reasoning_effort}}},'internal_agents.'+seat);
 }
+// 必須call stepの欠落は参照先を辿る前に診断する。
+const callee=(parent,name)=>{
+ const step=parent?.steps.find(s=>s.name===name);
+ const child=step&&resolveWorkflowCallTarget(parent,step,output);
+ if(!child)throw Error('child_workflow_missing: '+name);
+ return child;
+};
 let references={};
 if(workflow==='default'){
- const core=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='develop'),output),peer=resolveWorkflowCallTarget(core,core.steps.find(s=>s.name==='peer-review'),output);
+ const core=callee(w,'develop'),peer=callee(core,'peer-review');
  references={default:runtimeReference(w),core:runtimeReference(core),peer:runtimeReference(peer)};
 }
 if(workflow==='private-agent-child-issue'){
- const fix=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='quality-review-fix'),output);
- const peer=resolveWorkflowCallTarget(fix,fix.steps.find(s=>s.name==='reviewers'),output);
- const quality=resolveWorkflowCallTarget(peer,peer.steps.find(s=>s.name==='initial-reviewers'),output);
+ const fix=callee(w,'quality-review-fix'),peer=callee(fix,'reviewers'),quality=callee(peer,'initial-reviewers');
  references={child:runtimeReference(w),fix:runtimeReference(fix),peer:runtimeReference(peer),quality:runtimeReference(quality)};
 }
 writeFileSync(join(output,'watch-compiled.json'),JSON.stringify({workflow,references,candidates,jobResources:{'codex-sol':1},maxProviderProcesses:60,maxProviderCalls:60,providerCallMs:300000,conditionalReviewers:true}),{mode:0o600,flag:'wx'});

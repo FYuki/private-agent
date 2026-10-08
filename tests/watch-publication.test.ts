@@ -11,7 +11,7 @@ import type {Run} from '../shared/contracts.ts';
 
 // 実Git/worktree/artifactを使い、providerとGitHub transportだけを置換する。
 // namespace/公式Engineは別の統合試験で検証する。
-for(const scenario of ['success','local-only','review-failed','validation-failed','cancelled','base-changed'] as const)test(`watch→artifact→Epic draft PR: ${scenario}`,async()=>{
+for(const scenario of ['success','local-only','review-failed','validation-failed','cancelled','base-changed','base-changed-before-push','base-changed-before-pr'] as const)test(`watch→artifact→Epic draft PR: ${scenario}`,async()=>{
  const root=await mkdtemp(join(tmpdir(),'watch-publish-'));
  const repo=join(root,'repo'),remote=join(root,'remote.git'),worktrees=join(root,'worktrees');
  const git=(args:string[],cwd=repo)=>execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd,encoding:'utf8'}).trim();
@@ -24,7 +24,7 @@ for(const scenario of ['success','local-only','review-failed','validation-failed
   const id=crypto.randomUUID(),base=git(['rev-parse','HEAD']);
   const run={id:id+':0',job_id:id,owner:'fixture',token:'fixture',development:{repoId:'private-agent',baseRef:'epic/development-runner',goal:'fixture',acceptanceCriteria:['value is 2'],orchestratorProfileId:'programmatic',executionProfileId:'takt-watch',watch:{issue:1,workflow:'private-agent-child-issue',validation:['test'],dependencies:[]}}} as unknown as Run;
   const config={repository:repo,worktrees,codexPackage:repo,authFile:join(repo,'package.json'),dependencies:repo,publishAuthorized:scenario!=='local-only',watchEnabled:true,watchAcceptanceEnabled:true,takt:{taktRuntime:repo,taktInputs:repo,taktRuns:repo,codexPackage:repo,authFile:join(repo,'package.json'),dependencies:repo}};
-  const operations=new Map<string,{fingerprint:string;state:string;result:string|null}>();let watches=0,pushes=0,prs=0,checks=0;
+  const operations=new Map<string,{fingerprint:string;state:string;result:string|null}>();let watches=0,pushes=0,prs=0,checks=0,baseReads=0;
   const api=async(path:string,body:any)=>{
    if(path.endsWith('/heartbeat'))return {ok:true,cancelRequested:scenario==='cancelled'&&watches>0};
    assert.ok(path.endsWith('/operation'));const old=operations.get(body.name);
@@ -41,7 +41,8 @@ for(const scenario of ['success','local-only','review-failed','validation-failed
     }
     if(file==='/usr/bin/bwrap'){checks++;if(scenario==='validation-failed'&&checks>1)throw Error('test_failed');return 'fixture validation passed';}
     if(argv.includes('push'))pushes++;
-    if(scenario==='base-changed'&&argv.includes('ls-remote'))return 'c'.repeat(40)+'\trefs/heads/epic/development-runner';
+    if(argv.includes('ls-remote')&&argv.some(x=>x.includes('epic/development-runner')))baseReads++;
+    if(argv.includes('ls-remote')&&(scenario==='base-changed'||scenario==='base-changed-before-push'&&baseReads>=2||scenario==='base-changed-before-pr'&&baseReads>=3))return 'c'.repeat(40)+'\trefs/heads/epic/development-runner';
     return processOutput(file,['-c','user.name=Fixture','-c','user.email=fixture@localhost',...argv.map(x=>x==='https://github.com/FYuki/private-agent.git'?remote:x)],cwd,args[3],args[4],args[5],args[6]);
    },
    watch:async(_c:any,cwd:string,baseSha:string,..._args:any[])=>{
@@ -59,7 +60,7 @@ for(const scenario of ['success','local-only','review-failed','validation-failed
    assert.equal(watches,1);assert.equal(pushes,1);assert.equal(prs,1);assert.equal(checks,3);
    assert.equal(git(['--git-dir='+remote,'rev-parse','refs/heads/'+('feature/development-task-'+id)]),git(['rev-parse','HEAD'],join(worktrees,id)));
   }else if(scenario==='local-only'){const result=JSON.parse(await execute());assert.equal(result.outcome,'local_only');assert.equal(result.review,'approved');assert.equal(pushes,0);assert.equal(prs,0);}
-  else{await assert.rejects(execute);assert.equal(pushes,0);assert.equal(prs,0);}
+  else{if(scenario.startsWith('base-changed'))await assert.rejects(execute,scenario==='base-changed'?/publication_base_changed/:/operation_blocked/);else await assert.rejects(execute);assert.equal(pushes,scenario==='base-changed-before-pr'?1:0);assert.equal(prs,0);}
   assert.equal(git(['--git-dir='+remote,'rev-parse','refs/heads/epic/development-runner']),base);
  }finally{await rm(root,{recursive:true,force:true});}
 });

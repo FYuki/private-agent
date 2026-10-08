@@ -44,9 +44,9 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
  const github:GitHubPublisher={
   async verifyRepository(){const info=JSON.parse(await gh(['api','repos/'+REPO]));verifyRepositoryMetadata(info,binding.visibility,policy.githubId,binding.publishAuthorized);},
   async branchSha(b){const output=await git(['ls-remote',REMOTE,'refs/heads/'+b]);return output.trim().split(/\s/)[0]||undefined;},
-  async push(b,sha){await publicationHeartbeat();await git(['push',REMOTE,sha+':refs/heads/'+b],directory);},
+  async push(b,sha){await publicationHeartbeat();if(await github.branchSha(spec.baseRef)!==prepared.baseSha)throw Error('publication_base_changed');await git(['push',REMOTE,sha+':refs/heads/'+b],directory);},
   async findPullRequest(b,base,sha){const list=JSON.parse(await gh(['pr','list','--repo',REPO,'--state','open','--head',b,'--base',base,'--json','url,headRefOid,isDraft']));const item=list.find((p:any)=>p.headRefOid===sha&&p.isDraft);return item?{url:item.url}:undefined;},
-  async createPullRequest(b,base,sha){await publicationHeartbeat();const url=(await gh(['pr','create','--repo',REPO,'--draft','--head',b,'--base',base,'--title','feat: 開発タスク '+id,'--body','専用 worktree の開発タスクによる変更です。隔離環境で型検査とテストを実行しました。ユーザーレビュー待ち。自動マージは行いません。'])).trim();if(!url.startsWith('https://github.com/'+REPO+'/pull/')||!/^\d+$/.test(url.slice(('https://github.com/'+REPO+'/pull/').length)))throw Error('invalid_pr_response');return {url};}
+  async createPullRequest(b,base,sha){await publicationHeartbeat();if(await github.branchSha(spec.baseRef)!==prepared.baseSha)throw Error('publication_base_changed');const url=(await gh(['pr','create','--repo',REPO,'--draft','--head',b,'--base',base,'--title','feat: 開発タスク '+id,'--body','専用 worktree の開発タスクによる変更です。隔離環境で型検査とテストを実行しました。ユーザーレビュー待ち。自動マージは行いません。'])).trim();if(!url.startsWith('https://github.com/'+REPO+'/pull/')||!/^\d+$/.test(url.slice(('https://github.com/'+REPO+'/pull/').length)))throw Error('invalid_pr_response');return {url};}
  };
  await github.verifyRepository();
  const prepared=await operation(ledger,'prepare',{id,owner:run.owner,repoId,base:spec.baseRef,mode,validation:policy.validation},async()=>{
