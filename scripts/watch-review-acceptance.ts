@@ -1,6 +1,10 @@
 // 明示的な受入入口。通常profileは実モデル受入まで閉じたまま、既存runner全体を通す。
 import {mkdir,readFile,writeFile,realpath} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {selectRepository,preflightRepository} from '../development/repositories.ts';
+import {verifyRepositoryMetadata} from '../development/publisher.ts';
+import {repositoryPolicy} from '../shared/repositories.ts';
 import {randomBytes,createHash} from 'node:crypto';
 import {SqliteDatabase} from '../control-plane/sqlite.ts';
 import {migrate} from '../control-plane/migrations.ts';
@@ -18,6 +22,11 @@ if(spec.executionProfileId!=='takt-watch'||spec.watch?.workflow!=='private-agent
 const config:DevelopmentRunnerConfig={...input.runner,watchEnabled:true,watchAcceptanceEnabled:true};
 if(!config.takt)throw Error('takt_configuration_required');
 validateWatchStorage(join(config.takt.taktRuns,'00000000-0000-4000-8000-000000000000','clones'));
+// 起動前に判定できる配置/公開先の不一致でclaimを消費しない。
+const binding=selectRepository(config.registry??[{repoId:'private-agent',root:config.repository,worktrees:config.worktrees,owners:['local'],visibility:config.repositoryVisibility??'private',publishAuthorized:config.publishAuthorized}],spec.repoId,'local');
+await preflightRepository(binding);
+const policy=repositoryPolicy(spec.repoId);
+verifyRepositoryMetadata(JSON.parse(execFileSync('/usr/bin/gh',['api','repos/'+policy.github],{encoding:'utf8'})),binding.visibility,policy.githubId,binding.publishAuthorized);
 const state=resolve(process.argv[4]);await mkdir(state,{recursive:true,mode:0o700});
 if(await realpath(state)!==state)throw Error('untrusted_state_path');
 await mkdir(config.takt.taktRuns,{recursive:true,mode:0o700});
@@ -40,4 +49,4 @@ try{
  await writeFile(join(state,'evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});
  console.log(JSON.stringify(evidence));
  if(status.state!=='succeeded')process.exitCode=1;
-}finally{await server.stop();db.close();}
+}finally{await server.stop();}

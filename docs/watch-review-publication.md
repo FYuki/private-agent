@@ -33,7 +33,7 @@ TAKTの内部cloneとホストの子Issue worktreeは別のディレクトリ。
 
 ## 実接続の受入入口
 
-本人が指定した子IssueとEpicを使い、管理用JSONをローカルに作成する。`task`はdevelopment APIと同じ入力で、`executionProfileId: takt-watch`、`watch.workflow: private-agent-child-issue`、`watch.issue`、`validation`を指定する。`runner`は既存`DevelopmentRunnerConfig`（repository/worktrees、codexPackage/authFile/dependencies、taktRuntime/taktInputs/taktRunsを持つ`takt`）を使用する。対象repo/baseは既存registryの許可範囲に限る。
+本人が指定した子IssueとEpicを使い、管理用JSONをローカルに作成する。`task`はdevelopment APIと同じ入力で、`executionProfileId: takt-watch`、`watch.workflow: private-agent-child-issue`、`watch.issue`、`validation`を指定する。`runner`は既存`DevelopmentRunnerConfig`（repository/worktrees、codexPackage/authFile/dependencies、taktRuntime/taktInputs/taktRunsを持つ`takt`）を使用する。対象repo/baseは既存registryの許可範囲に限る。publicリポジトリでは`repositoryVisibility: public`（registryでは`visibility: public`）を実際のGitHub設定に合わせる。可視性・repository ID・push権限をclaim前に照合する。
 
 `publishAuthorized: true`は公開をあらかじめ許可した受入だけに設定する。指定しない場合はlocal_only。registryを使う場合は対象bindingの公開設定が優先する。認証情報の本文をJSONやGitへ保存しない。TAKT config/runtimeの原本は変更しない。
 
