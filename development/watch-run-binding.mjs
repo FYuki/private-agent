@@ -4,7 +4,7 @@ import {pathToFileURL} from 'node:url';
 // v3 official.mjsのbinding修正を移植。公式config cacheは専用process内に閉じ込める。
 const [runtime,root,config,clones,taskName,runSlug,workflow]=process.argv.slice(2);
 for(const p of [runtime,root,config,clones])if(resolve(p)!==p||realpathSync(p)!==p)throw Error('untrusted_binding_path');
-if(!/^[a-zA-Z0-9_-]{1,255}$/.test(runSlug)||!['default','simple'].includes(workflow))throw Error('invalid_binding_identity');
+if(!/^[a-zA-Z0-9_-]{1,255}$/.test(runSlug)||!['default','simple','private-agent-child-issue'].includes(workflow))throw Error('invalid_binding_identity');
 const pkg=JSON.parse(readFileSync(join(runtime,'node_modules/takt/package.json'),'utf8'));
 const lock=JSON.parse(readFileSync(join(runtime,'package-lock.json'),'utf8')).packages?.['node_modules/takt'];
 if(pkg.version!=='0.68.0'||lock?.integrity!=='sha512-92yoikSQ6kyj/PYMrefONIOKkNW9CdiJrAl2REPdsmdKp3M3XUMZnxDOjCtf1mAnOMadJpVGlGa5sYuaI1hjcw==')throw Error('takt_pin_mismatch');

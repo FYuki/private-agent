@@ -115,3 +115,5 @@ TAKT watchへの接続は[初期管理slice](docs/takt-watch.md)に分離して�
 PR前の独自品質レビューと修正には[review-fixの実行手順](docs/review-fix-quality.md)を参照。TAKT開発済みと通常開発で入口を分け、広範品質レビューを必須実行する。
 
 子Issueのworktreeで実装から必須レビュー、Epic宛draft PRまで自動実行する入口は `npm run child-issue`。[引数と再開手順](docs/review-fix-quality.md#子issueの実装からepic宛prまで自動実行)を参照。
+
+watchから同じ必須レビュー・成果物回収・Epic宛draft PRへ接続する受入入口は[watch接続手順](docs/watch-review-publication.md)を参照。通常watchは正常実モデルの全経路受入まで停止中です。

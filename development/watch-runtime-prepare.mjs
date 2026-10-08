@@ -2,7 +2,7 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const [runtime,input,output,clones,workflow]=process.argv.slice(2);
-if(!['default','simple'].includes(workflow))throw Error('workflow_not_allowed');
+if(!['default','simple','private-agent-child-issue'].includes(workflow))throw Error('workflow_not_allowed');
 const mod=p=>import(pathToFileURL(join(runtime,'node_modules',p)).href);
 const {parse,stringify}=await mod('yaml/dist/index.js');
 const {GlobalConfigSchema}=await mod('takt/dist/core/models/config-schemas.js');
@@ -19,10 +19,15 @@ const effective={...config,auto_pr:false,branch_name_strategy:'romaji',concurren
 GlobalConfigSchema.parse(effective);
 writeFileSync(join(output,'config.yaml'),stringify(effective),{mode:0o600,flag:'wx'});
 writeFileSync(join(output,'runtime.yaml'),stringify({...routing,companion:{enabled:false}}),{mode:0o600,flag:'wx'});
+if(workflow==='private-agent-child-issue'){
+ if(config.language!=='ja')throw Error('review_language_not_supported');
+ const {installReviewResources}=await import('../review/prepare.mjs');
+ installReviewResources(output);
+}
 process.env.TAKT_CONFIG_DIR=output;
-const {getBuiltinWorkflow,resolveWorkflowCallTarget}=await mod('takt/dist/infra/config/loaders/workflowLoader.js');
+const {loadWorkflow,resolveWorkflowCallTarget}=await mod('takt/dist/infra/config/loaders/workflowLoader.js');
 const {getWorkflowReference}=await mod('takt/dist/core/workflow/workflow-reference.js');
-const w=getBuiltinWorkflow(workflow,output);if(!w)throw Error('builtin_missing');
+const w=loadWorkflow(workflow,output);if(!w)throw Error('builtin_missing');
 const {compileRuntimeProviderEnvironment}=await mod('takt/dist/infra/config/runtime-provider/environment.js');
 const {OptionsBuilder}=await mod('takt/dist/core/workflow/engine/OptionsBuilder.js');
 const {resolveLoopMonitorJudgeProviderModel}=await mod('takt/dist/core/workflow/provider-resolution.js');
@@ -39,7 +44,7 @@ function visit(w,prefix=''){
  for(const step of w.steps){
   if(step.type==='workflow-call'||step.workflow||step.call){const child=resolveWorkflowCallTarget(w,step,output);if(!child)throw Error('child_workflow_missing');visit(child,prefix+step.name+'/');}
   else if(step.parallel){
-   const children=step.parallel.kind==='dynamic'?[...step.parallel.fixed,...step.parallel.pool]:step.parallel.steps;
+   const children=step.parallel.kind==='dynamic'?[...step.parallel.fixed,...step.parallel.pool]:step.parallel;
    if(!Array.isArray(children)||!children.length)throw Error('parallel_shape_not_verified');
    for(const child of children)check(builder.resolveStepProviderModel(child),prefix+step.name+'/'+child.name);
   }else check(builder.resolveStepProviderModel(step),prefix+step.name);
@@ -64,5 +69,11 @@ let references={};
 if(workflow==='default'){
  const core=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='develop'),output),peer=resolveWorkflowCallTarget(core,core.steps.find(s=>s.name==='peer-review'),output);
  references={default:getWorkflowReference(w),core:getWorkflowReference(core),peer:getWorkflowReference(peer)};
+}
+if(workflow==='private-agent-child-issue'){
+ const fix=resolveWorkflowCallTarget(w,w.steps.find(s=>s.name==='quality-review-fix'),output);
+ const peer=resolveWorkflowCallTarget(fix,fix.steps.find(s=>s.name==='reviewers'),output);
+ const quality=resolveWorkflowCallTarget(peer,peer.steps.find(s=>s.name==='initial-reviewers'),output);
+ references={child:getWorkflowReference(w),fix:getWorkflowReference(fix),peer:getWorkflowReference(peer),quality:getWorkflowReference(quality)};
 }
 writeFileSync(join(output,'watch-compiled.json'),JSON.stringify({workflow,references,candidates,jobResources:{'codex-sol':1},maxProviderProcesses:60,maxProviderCalls:60,providerCallMs:300000,conditionalReviewers:true}),{mode:0o600,flag:'wx'});

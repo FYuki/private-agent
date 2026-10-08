@@ -7,6 +7,7 @@ import {TaktWatchClient,verifyWatchRuntime} from './takt-watch-client.ts';
 import {watchOrder,orderText,orderMarker,type WatchOrder} from './watch-contract.ts';
 import {verifyCommitRange} from './commit-range.ts';
 import {acceptedResult,hash} from './takt-contract.ts';
+import {acceptedChildReviewResult} from './watch-review-acceptance.ts';
 import {acceptedDefaultResult} from './watch-acceptance.ts';
 // @ts-ignore dependency-free provider budget boundary
 import {verifyProviderSettlement} from './watch-provider-budget.mjs';
@@ -35,7 +36,17 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
  const origin=(await git(['remote','get-url','origin'],worktree)).trim();await git(['remote','add','origin',origin]);
  await processOutput(process.execPath,[fileURLToPath(new URL('./watch-runtime-prepare.mjs',import.meta.url)),config.taktRuntime,config.taktInputs,configDir,clones,order.workflow],root,'',signal,commandDeadline(),env);
  const compiled=JSON.parse(await readFile(join(configDir,'watch-compiled.json'),'utf8'));
- const task=orderText(order);let client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);
+ if(order.workflow==='private-agent-child-issue'){
+  // モデルへ実worktreeのGit管理領域を渡さず、固定baseの読取専用index/objectsを渡す。
+  const snapshot=join(runRoot,'empty-git');
+  await git(['init','--bare',snapshot]);
+  await git(['--git-dir='+snapshot,'fetch','--no-tags',root,baseSha]);
+  await git(['--git-dir='+snapshot,'config','core.bare','false']);
+  await git(['--git-dir='+snapshot,'update-ref','refs/heads/review-base',baseSha]);
+  await git(['--git-dir='+snapshot,'symbolic-ref','HEAD','refs/heads/review-base']);
+  await git(['--git-dir='+snapshot,'read-tree',baseSha]);
+ }
+ const task=orderText(order)+`\n\nReview base SHA: ${baseSha}\nレビューはこのbaseからの作業ツリー差分全体と未追跡ファイルを対象とする。ホストが固定テストを再実行し、管理設定で公開が許可済みならEpic宛draft PRを作成する。`;let client=await TaktWatchClient.connect(config.taktRuntime,root,configDir);
  const supervisor=new WatchSupervisor(join(runRoot,'supervisor.db'));let started=false,stopped=false,completedSlug:string|undefined;
  let cancellation:Promise<void>|undefined,timer:ReturnType<typeof setTimeout>|undefined;
  const cancelNow=()=>{if(started&&!stopped&&!cancellation)cancellation=supervisor.cancel(owner,root).then(()=>{stopped=true;}).catch(()=>{throw Error('watch_stop_unconfirmed');});cancellation?.catch(()=>{});};
@@ -56,7 +67,7 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
    '--setenv','HOME',configDir,'--setenv','TAKT_CONFIG_DIR',configDir,'--setenv','TAKT_CODEX_CLI_PATH','/opt/private-agent/watch-codex-wrapper.mjs',
    '--setenv','PATH','/usr/bin:/bin','--setenv','LANG','C.UTF-8','--setenv','TAKT_NO_TTY','1','--setenv','NO_UPDATE_NOTIFIER','1','--chdir',root,
    '--','/usr/bin/node','/opt/takt-runtime/node_modules/takt/dist/app/cli/index.js','watch'];
-  for(const name of ['config.yaml','runtime.yaml'])args.splice(args.indexOf('--chdir'),0,'--ro-bind',join(configDir,name),join(configDir,name));
+  for(const name of ['config.yaml','runtime.yaml',...(order.workflow==='private-agent-child-issue'?['workflows','facets']:[])])args.splice(args.indexOf('--chdir'),0,'--ro-bind',join(configDir,name),join(configDir,name));
   if(signal.aborted||(deadline!==undefined&&process.hrtime.bigint()>=deadline))throw Error('cancelled_or_deadline');
   await supervisor.start(owner,{file:'/usr/bin/bwrap',args,cwd:root,env});started=true;
   signal.addEventListener('abort',cancelNow,{once:true});if(deadline!==undefined)timer=setTimeout(cancelNow,Math.max(0,Number(deadline-process.hrtime.bigint())/1e6));if(signal.aborted)cancelNow();
@@ -87,7 +98,7 @@ export async function runWatchExecution(config:TaktConfig,worktree:string,baseSh
   const metas=files.filter(p=>p.endsWith('/meta.json'));if(metas.length!==1)throw Error('ambiguous_takt_result');const meta=JSON.parse(await readFile(metas[0],'utf8'));
   const sessions=[];for(const p of files.filter(p=>p.endsWith('.jsonl')&&p.includes('/logs/')&&!p.includes('/shadow/'))){const events=(await readFile(p,'utf8')).split('\n').filter(Boolean).map(x=>JSON.parse(x));if(events[0]?.type==='workflow_start'&&events[0].task===expectedTask&&events[0].workflowName===order.workflow&&events[0].startTime===meta.startTime)sessions.push(events);}
   if(sessions.length!==1||meta.runSlug!==binding.runSlug)throw Error('ambiguous_takt_session');
-  const result=order.workflow==='default'?acceptedDefaultResult(meta,sessions[0],{task:expectedTask,workflow:'default',references:compiled.references}):acceptedResult(meta,sessions[0],{task:expectedTask,workflow:'simple'});
+  const result=order.workflow==='private-agent-child-issue'?acceptedChildReviewResult(meta,sessions[0],{task:expectedTask,references:compiled.references}):order.workflow==='default'?acceptedDefaultResult(meta,sessions[0],{task:expectedTask,workflow:'default',references:compiled.references}):acceptedResult(meta,sessions[0],{task:expectedTask,workflow:'simple'});
   const activity=(await readFile(join(privateDir,'activity.ndjson'),'utf8')).trim().split('\n').map(x=>JSON.parse(x));
   verifyProviderSettlement(activity,policy.maxCalls);
   await git(['fetch','--no-tags',clone,headSha],worktree);await git(['merge','--ff-only',headSha],worktree);

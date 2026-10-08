@@ -16,22 +16,23 @@ import {executeTakt,type TaktConfig} from './takt-adapter.ts';
 import {repositoryPolicy,repositoryBranch,allowedRepositoryPath,validationCommands} from '../shared/repositories.ts';
 import {repositoryBindings,selectRepository,preflightRepository,type RepositoryBinding} from './repositories.ts';
 import {saveArtifact,finishArtifact} from './artifacts.ts';
-export type DevelopmentRunnerConfig=SandboxConfig&{repository:string;worktrees:string;publishAuthorized:boolean;registry?:RepositoryBinding[];repositoryVisibility?:'private'|'public';takt?:TaktConfig;watchEnabled?:boolean};
+export type DevelopmentRunnerConfig=SandboxConfig&{repository:string;worktrees:string;publishAuthorized:boolean;registry?:RepositoryBinding[];repositoryVisibility?:'private'|'public';takt?:TaktConfig;watchEnabled?:boolean;watchAcceptanceEnabled?:boolean};
 /** reviewerは将来の読取専用拡張点。レビュー文を承認として扱わない。 */
 export interface ReadOnlyReviewer {review(input:{baseSha:string;headSha:string;diff:string},signal:AbortSignal):Promise<{findings:string[]}>}
 
-export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,config:DevelopmentRunnerConfig,signal:AbortSignal,deadline:bigint){
- const spec=developmentInput(run.development),id=run.job_id;
+export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,config:DevelopmentRunnerConfig,signal:AbortSignal,deadline:bigint,services={command:processOutput,watch:executeWatch}){
+ const spec=developmentInput(run.development,{allowWatchTest:config.watchAcceptanceEnabled}),id=run.job_id;
  // 実モデルでの成功→artifact受入前は通常runnerを有効化しない。
- if(spec.executionProfileId==='takt-watch')throw Error('watch_runtime_validation_pending');
+ if(spec.executionProfileId==='takt-watch'&&!config.watchAcceptanceEnabled)throw Error('watch_runtime_validation_pending');
+ if(spec.executionProfileId==='takt-watch'&&spec.watch?.workflow!=='private-agent-child-issue')throw Error('mandatory_review_workflow_required');
  if(!/^[a-f0-9-]{36}$/.test(id))throw Error('invalid_task');
  const binding=selectRepository(config.registry??[{repoId:'private-agent',root:config.repository,worktrees:config.worktrees,owners:[run.owner],visibility:config.repositoryVisibility??'private',publishAuthorized:config.publishAuthorized}],spec.repoId,run.owner);
  const artifactRoot=await preflightRepository(binding),repoId=binding.repoId,policy=repositoryPolicy(repoId);
  const REPO=policy.github,REMOTE='https://github.com/'+REPO+'.git';
  const directory=join(binding.worktrees,id),branch=repositoryBranch(repoId,id);
- const mode=binding.publishAuthorized&&spec.executionProfileId!=='takt-watch'?'published':'local_only';
+ const mode=binding.publishAuthorized?'published':'local_only';
  const env={PATH:'/usr/bin:/bin',HOME:process.env.HOME,LANG:'C.UTF-8',GIT_TERMINAL_PROMPT:'0',GH_PROMPT_DISABLED:'1'};
- const command=(file:string,args:string[],cwd=binding.root,input='')=>processOutput(file,args,cwd,input,signal,deadline,env);
+ const command=(file:string,args:string[],cwd=binding.root,input='')=>services.command(file,args,cwd,input,signal,deadline,env);
  const git=(args:string[],cwd=binding.root)=>command('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false',...args],cwd);
  const gh=(args:string[])=>command('/usr/bin/gh',args);
  if((await git(['rev-parse','--show-toplevel'])).trim()!==binding.root)throw Error('repository_root_mismatch');
@@ -39,12 +40,13 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
  if(![REMOTE,'git@github.com:'+REPO+'.git'].includes(origin))throw Error('repository_remote_mismatch');
  if(['takt-simple','takt-watch'].includes(spec.executionProfileId)&&!config.takt)throw Error('takt_not_configured');
  const ledger:Ledger=(name,fingerprint,result)=>api('/api/development/tasks/'+id+'/operation',{token:run.token,name,fingerprint,...(result===undefined?{}:{result})}) as ReturnType<Ledger>;
+ const publicationHeartbeat=async()=>{const state=await api('/api/runs/'+run.id+'/heartbeat',{token:run.token}) as {cancelRequested?:boolean};if(state.cancelRequested)throw Error('cancelled');};
  const github:GitHubPublisher={
   async verifyRepository(){const info=JSON.parse(await gh(['api','repos/'+REPO]));verifyRepositoryMetadata(info,binding.visibility,policy.githubId,binding.publishAuthorized);},
   async branchSha(b){const output=await git(['ls-remote',REMOTE,'refs/heads/'+b]);return output.trim().split(/\s/)[0]||undefined;},
-  async push(b,sha){await api('/api/runs/'+run.id+'/heartbeat',{token:run.token});await git(['push',REMOTE,sha+':refs/heads/'+b],directory);},
+  async push(b,sha){await publicationHeartbeat();await git(['push',REMOTE,sha+':refs/heads/'+b],directory);},
   async findPullRequest(b,base,sha){const list=JSON.parse(await gh(['pr','list','--repo',REPO,'--state','open','--head',b,'--base',base,'--json','url,headRefOid,isDraft']));const item=list.find((p:any)=>p.headRefOid===sha&&p.isDraft);return item?{url:item.url}:undefined;},
-  async createPullRequest(b,base,sha){await api('/api/runs/'+run.id+'/heartbeat',{token:run.token});const url=(await gh(['pr','create','--repo',REPO,'--draft','--head',b,'--base',base,'--title','feat: 開発タスク '+id,'--body','専用 worktree の開発タスクによる変更です。隔離環境で型検査とテストを実行しました。ユーザーレビュー待ち。自動マージは行いません。'])).trim();if(!url.startsWith('https://github.com/'+REPO+'/pull/')||!/^\d+$/.test(url.slice(('https://github.com/'+REPO+'/pull/').length)))throw Error('invalid_pr_response');return {url};}
+  async createPullRequest(b,base,sha){await publicationHeartbeat();const url=(await gh(['pr','create','--repo',REPO,'--draft','--head',b,'--base',base,'--title','feat: 開発タスク '+id,'--body','専用 worktree の開発タスクによる変更です。隔離環境で型検査とテストを実行しました。ユーザーレビュー待ち。自動マージは行いません。'])).trim();if(!url.startsWith('https://github.com/'+REPO+'/pull/')||!/^\d+$/.test(url.slice(('https://github.com/'+REPO+'/pull/').length)))throw Error('invalid_pr_response');return {url};}
  };
  await github.verifyRepository();
  const prepared=await operation(ledger,'prepare',{id,owner:run.owner,repoId,base:spec.baseRef,mode,validation:policy.validation},async()=>{
@@ -66,7 +68,7 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
  if(spec.executionProfileId==='takt-watch'){
   if(!config.takt||!config.watchEnabled||!spec.watch)throw Error('watch_not_configured');
   const observe=async()=>{
-   const executed=await executeWatch(config.takt!,directory,prepared.baseSha,run.owner,{id,repoId,issue:spec.watch!.issue,requirements:pathInstruction+' '+validationInstruction+' Task data: '+spec.goal,acceptance:spec.acceptanceCriteria,validation:spec.watch!.validation,dependencies:spec.watch!.dependencies,workflow:spec.watch!.workflow,baseRef:spec.baseRef},signal,deadline);
+   const executed=await services.watch(config.takt!,directory,prepared.baseSha,run.owner,{id,repoId,issue:spec.watch!.issue,requirements:pathInstruction+' '+validationInstruction+' Task data: '+spec.goal,acceptance:spec.acceptanceCriteria,validation:spec.watch!.validation,dependencies:spec.watch!.dependencies,workflow:spec.watch!.workflow,baseRef:spec.baseRef},signal,deadline);
    return {...executed,contentHash:await snapshot()};
   };
   const result=await operation(ledger,'takt',{profile:spec.executionProfileId,spec,base:prepared.baseSha},observe,observe);
@@ -116,13 +118,15 @@ export async function executeDevelopment(run:Run,api:ReturnType<typeof client>,c
  const artifact=await operation(ledger,'artifact',{taskId:id,owner:run.owner,repoId,baseSha:prepared.baseSha,headSha:sha,contentHash,mode},async()=>saveArtifact(artifactRoot,{version:1,taskId:id,owner:run.owner,repoId,baseRef:spec.baseRef,baseSha:prepared.baseSha,headSha:sha,branch,contentHash,validation:policy.validation,checks:validationCommands(repoId).map(argv=>[...argv]),mode,...(review?{execution:review}:{}),...(watchResult?{commitRange:watchResult.commitRange}:{})}));
  const outcome=await finishArtifact(artifact,mode,async()=>{
   if((await git(['rev-parse','HEAD'],directory)).trim()!==sha||(await git(['status','--porcelain'],directory)).trim())throw Error('artifact_head_changed');
+  await publicationHeartbeat();
+  if(await github.branchSha(spec.baseRef)!==prepared.baseSha)throw Error('publication_base_changed');
   return publish(ledger,github,branch,spec.baseRef,sha,binding.publishAuthorized);
  });
- return JSON.stringify({...outcome,review:'pending'});
+ return JSON.stringify({...outcome,review:watchResult?'approved':'pending'});
 }
 
 export async function developmentOnce(api:ReturnType<typeof client>,config:DevelopmentRunnerConfig,stop:AbortSignal){
- if(config.watchEnabled)throw Error('watch_runtime_validation_pending');
+ if(config.watchEnabled&&!config.watchAcceptanceEnabled)throw Error('watch_runtime_validation_pending');
  const started=process.hrtime.bigint(),run=await api('/api/claim',{protocol:'development-v1',taskKind:'development',provider:'codex-luna',executionProfile:config.watchEnabled?'takt-watch':config.takt?'takt-simple':'edit-codex-luna'}) as Run|null;if(!run)return false;
  return processClaimedDevelopment(run,api,config,stop,started);
 }

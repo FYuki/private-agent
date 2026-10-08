@@ -32,10 +32,20 @@ export async function prepareReview({ output, input = join(repository, 'examples
   RuntimeProviderFileSchema.parse(parse(runtimeBytes.toString()));
   // mkdirのexclusiveな失敗で既存runの上書きを防ぐ。
   mkdirSync(configDir, { mode: 0o700 });
-  mkdirSync(join(configDir, 'workflows'));
-  mkdirSync(join(configDir, 'facets'));
   writeFileSync(join(configDir, 'config.yaml'), stringify({ ...config, auto_pr: false }), { mode: 0o600 });
   writeFileSync(join(configDir, 'runtime.yaml'), runtimeBytes, { mode: 0o600 });
+  const { workflows, sources } = installReviewResources(configDir);
+  writeFileSync(join(configDir, 'manifest.json'), JSON.stringify({
+    taktVersion: pkg.version, integrity, workflows, sources,
+    input: { config: sha(configBytes), runtime: sha(runtimeBytes) }, overrides: { auto_pr: false },
+  }, null, 2));
+  return { configDir, workflows };
+}
+
+/** 検証済みの専用configへ同一のworkflow/facetを設置する。既存資源は上書きしない。 */
+export function installReviewResources(configDir) {
+  mkdirSync(join(configDir, 'workflows'));
+  mkdirSync(join(configDir, 'facets'));
   const sources = {};
   const builtin = name => {
     const bytes = readFileSync(join(taktRoot, 'builtins/ja/workflows', `${name}.yaml`));
@@ -102,9 +112,5 @@ export async function prepareReview({ output, input = join(repository, 'examples
   });
   writeFileSync(join(configDir, 'workflows', `${child.name}.yaml`), stringify(child));
   workflows.child = child.name;
-  writeFileSync(join(configDir, 'manifest.json'), JSON.stringify({
-    taktVersion: pkg.version, integrity, workflows, sources,
-    input: { config: sha(configBytes), runtime: sha(runtimeBytes) }, overrides: { auto_pr: false },
-  }, null, 2));
-  return { configDir, workflows };
+  return { workflows, sources };
 }

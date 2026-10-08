@@ -17,7 +17,7 @@ export const DEVELOPMENT_PROFILES = {
     { id: 'edit-claude', model: null, capacityKey: null, available: false, reason: 'claude_profile_not_verified' },
   ],
 };
-export type DevelopmentWatch = { issue: number; workflow: 'default'|'simple'; validation: string[]; dependencies: string[] };
+export type DevelopmentWatch = { issue: number; workflow: 'default'|'simple'|'private-agent-child-issue'; validation: string[]; dependencies: string[] };
 export type DevelopmentInput = { repoId: string; goal: string; baseRef: string; acceptanceCriteria: string[]; orchestratorProfileId: string; executionProfileId: string; budgetMs?: number; watch?: DevelopmentWatch };
 /** GUI/MCP共通の入力境界。選択可能な管理profileとrepo/baseだけを許可し、利用不能はfallbackしない。 */
 export function developmentInput(value: unknown, options: {allowWatchTest?:boolean} = {}): DevelopmentInput {
@@ -40,7 +40,7 @@ export function developmentInput(value: unknown, options: {allowWatchTest?:boole
   if (executionProfileId === 'takt-watch') {
     const w=object(v.watch); exact(w,['issue','workflow','validation','dependencies']);
     const workflow=w.workflow===undefined?'default':w.workflow;
-    if(workflow!=='default'&&workflow!=='simple')throw new Fault(400,'invalid_watch_workflow');
+    if(workflow!=='default'&&workflow!=='simple'&&workflow!=='private-agent-child-issue')throw new Fault(400,'invalid_watch_workflow');
     if(!Array.isArray(w.validation)||w.validation.length<1||w.validation.length>20)throw new Fault(400,'invalid_watch_validation');
     const dependencies=w.dependencies===undefined?[]:w.dependencies;
     if(!Array.isArray(dependencies)||dependencies.length>16||dependencies.some(x=>typeof x!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(x))||new Set(dependencies).size!==dependencies.length)throw new Fault(400,'invalid_watch_dependencies');
