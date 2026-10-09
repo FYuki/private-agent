@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { prepareReview } from '../../review/prepare.mjs';
 import { reviewProject } from '../../review/project.mjs';
+import { acceptedChildReviewResult } from '../../development/watch-review-acceptance.ts';
 import { assertReviewApproval } from '../../review/child-issue.mjs';
 
 test('official execution API emits the evidence used by the automatic publication gate', { timeout: 90000 }, async () => {
@@ -33,6 +34,22 @@ test('official execution API emits the evidence used by the automatic publicatio
     assert.equal(reviewProject(dir), dir);
     const events = readFileSync(result.ndjsonLogPath, 'utf8').split('\n').filter(Boolean).map(JSON.parse);
     assert.deepEqual(assertReviewApproval(result, events, prepared.workflows.child), { approved: true });
+    const {loadWorkflow,resolveWorkflowCallTarget}=await import('../../runtime/takt/node_modules/takt/dist/infra/config/loaders/workflowLoader.js');
+    const {getWorkflowReference}=await import('../../runtime/takt/node_modules/takt/dist/core/workflow/workflow-reference.js');
+    const child=loadWorkflow(prepared.workflows.child,dir),fix=resolveWorkflowCallTarget(child,child.steps.at(-1),dir);
+    const peer=resolveWorkflowCallTarget(fix,fix.steps.at(-1),dir),quality=resolveWorkflowCallTarget(peer,peer.steps[0],dir);
+    const expected={task:'fixture child issue',references:Object.fromEntries(Object.entries({child,fix,peer,quality}).map(([k,v])=>[k,getWorkflowReference(v)]))};
+    const meta={task:expected.task,workflow:child.name,status:'completed',startTime:events[0].startTime,endTime:'fixture-end'};
+    assert.equal(acceptedChildReviewResult(meta,events,expected).status,'approved');
+    for(const mutate of [
+      e=>e.findLast(x=>x.step==='quality-review'&&x.type==='phase_complete'&&x.phase===3).content='needs_fix',
+      e=>e.findLast(x=>x.step==='final-gate'&&x.type==='step_complete').matchedRuleIndex=1,
+      e=>e.findLast(x=>x.step==='quality-review'&&x.type==='phase_complete'&&x.phase===3).stack[1].occurrence++,
+      e=>e.findLast(x=>x.type==='workflow_call_complete').returnValue='need_replan',
+      e=>e.splice(-1,0,{type:'workflow_abort'}),
+      e=>e.findLast(x=>x.step==='supervise'&&x.type==='step_complete').matchedRuleIndex=0,
+    ]) {const invalid=structuredClone(events);mutate(invalid);assert.throws(()=>acceptedChildReviewResult(meta,invalid,expected),/not_approved/);}
+
     const completed = events.filter(e => e.type === 'step_complete').map(e => e.step);
     assert.ok(completed.indexOf('supervise') < completed.indexOf('final-gate'));
   } finally {

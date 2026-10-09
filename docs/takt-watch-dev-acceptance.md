@@ -1,5 +1,8 @@
 # Watch dev受入と実行契約
 
+2026-10-08 UTC追記：[Issue29の実接続](evidence/watch-review-issue29.md)で、必須レビューを含むwatchから成果物・Epic宛draft PRまで成功した。通常profileへの運用切替は未実施。以下の過去試験記録は保持する。
+
+
 この変更はPR22の隔離dev/test用。通常runnerの`watch_runtime_validation_pending`、本番cron無効、公開承認境界を維持する。
 
 2026-10-07の本人方針に基づく現在の実行寿命・監視再接続・明示取消は [実行と監視の寿命](takt-watch-lifetime.md) を正本とする。以下の60 CLI・各300秒・全体60分は従前の有限試験の記録であり、通常watchの固定上限ではない。
